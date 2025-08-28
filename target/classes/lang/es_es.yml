@@ -1,0 +1,23 @@
+# Spanish language file for MobLaunch plugin
+
+# General messages
+no-permission-use: "No tienes permiso para usar esta función"
+no-permission-admin: "No tienes permiso para usar comandos de administrador"
+mob-not-allowed: "Este tipo de criatura no puede ser recogido"
+already-holding-mob: "Ya estás sosteniendo una criatura"
+mob-already-mounted: "Esta criatura ya está siendo sostenida por otro jugador"
+pickup-success: "Recogiste a {0}"
+putdown-success: "Soltaste a {0}"
+launch-message: "¡{1} lanzado con {0}% de potencia!"
+auto-putdown-message: "La criatura ha sido soltada automáticamente por un tiempo de carga prolongado"
+
+# Command messages
+command-help-title: "=== Ayuda de MobLaunch ==="
+command-help-version: "/moblaunch version - Muestra la versión del plugin"
+command-help-reload: "/moblaunch reload - Recarga la configuración del plugin"
+command-version-title: "=== Plugin MobLaunch ==="
+command-version-version: "Versión: 1.3.1"
+command-version-author: "Autor: ZXBHELLO, AZKANA"
+command-version-description: "Un plugin que permite a los jugadores recoger y lanzar criaturas"
+command-reload-success: "Configuración recargada correctamente"
+command-reload-failed: "Error al recargar la configuración: {0}"

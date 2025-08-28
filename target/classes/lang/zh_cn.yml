@@ -1,0 +1,26 @@
+# Chinese language file for MobLaunch plugin
+
+# 通用消息
+no-permission-use: "你没有使用此功能的权限"
+no-permission-admin: "你没有使用管理命令的权限"
+mob-not-allowed: "此生物类型不允许抱起"
+already-holding-mob: "你已经抱起了一个生物"
+mob-already-mounted: "此生物已被其他玩家抱起"
+pickup-success: "成功抱起生物: {0}"
+putdown-success: "成功放下生物: {0}"
+launch-message: "以 {0}% 的力量投掷了 {1}"
+auto-putdown-message: "由于蓄力时间过长，生物已自动放下"
+
+# 命令消息
+command-help-title: "=== MobLaunch 帮助 ==="
+command-help-version: "/moblaunch version - 显示插件版本"
+command-help-reload: "/moblaunch reload - 重载插件配置"
+command-version-title: "=== MobLaunch 插件 ==="
+command-version-version: "版本: 1.3.1"
+command-version-author: "作者: ZXBHELLO, AZKANA"
+command-version-description: "一个允许玩家抱起并投掷生物的插件"
+command-reload-success: "配置重载成功"
+command-reload-failed: "配置重载失败: {0}"
+
+# 配置文件相关消息
+config-load-failed: "配置文件加载失败: {0}"

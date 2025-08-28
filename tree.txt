@@ -1,0 +1,84 @@
+卷 机械硬盘 的文件夹 PATH 列表
+卷序列号为 5861-5E1C
+H:.
+│  MobLaunch.iml
+│  PLUGIN_GUIDE.md
+│  pom.xml
+│  settings.xml
+│  tree.txt
+│  
+├─.idea
+│      .gitignore
+│      compiler.xml
+│      encodings.xml
+│      jarRepositories.xml
+│      misc.xml
+│      MobLaunch.iml
+│      modules.xml
+│      workspace.xml
+│      
+├─src
+│  └─main
+│      ├─java
+│      │  └─com
+│      │      └─moblaunch
+│      │          └─plugin
+│      │                  ConfigManager.java
+│      │                  LanguageManager.java
+│      │                  MobLaunch.java
+│      │                  MobLaunchCommand.java
+│      │                  MobManager.java
+│      │                  PlayerListener.java
+│      │                  
+│      └─resources
+│          │  config.yml
+│          │  plugin.yml
+│          │  
+│          └─lang
+│                  de_de.yml
+│                  en_us.yml
+│                  es_es.yml
+│                  fr_fr.yml
+│                  ja_jp.yml
+│                  ko_kr.yml
+│                  ru_ru.yml
+│                  zh_cn.yml
+│                  
+└─target
+    ├─classes
+    │  │  config.yml
+    │  │  plugin.yml
+    │  │  
+    │  ├─com
+    │  │  └─moblaunch
+    │  │      └─plugin
+    │  │              ConfigManager.class
+    │  │              LanguageManager.class
+    │  │              MobLaunch.class
+    │  │              MobLaunchCommand.class
+    │  │              MobManager$ChargeTask.class
+    │  │              MobManager.class
+    │  │              PlayerListener.class
+    │  │              
+    │  └─lang
+    │          de_de.yml
+    │          en_us.yml
+    │          es_es.yml
+    │          fr_fr.yml
+    │          ja_jp.yml
+    │          ko_kr.yml
+    │          ru_ru.yml
+    │          zh_cn.yml
+    │          
+    ├─generated-sources
+    │  └─annotations
+    ├─maven-archiver
+    │      pom.properties
+    │      
+    └─maven-status
+        └─maven-compiler-plugin
+            └─compile
+                └─default-compile
+                        createdFiles.lst
+                        inputFiles.lst
+                        
