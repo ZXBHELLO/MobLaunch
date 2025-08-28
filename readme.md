@@ -3,6 +3,7 @@
 ## 插件概述
 
 MobLaunch 是一个 Minecraft 服务器插件，允许玩家抱起生物并在蓄力后投掷出去。该插件支持 Folia、Spigot 和 Paper 服务器环境。
+AI太好用了，你知道吧
 
 ## 功能列表
 
