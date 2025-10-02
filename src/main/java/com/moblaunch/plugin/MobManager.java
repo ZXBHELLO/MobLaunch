@@ -46,17 +46,26 @@ public class MobManager {
             return false;
         }
 
+        // 检查是否拥有通配符权限（可抱起所有生物，即使未在配置中）
+        boolean hasWildcardPermission = player.hasPermission("moblaunch.use.*");
+        
         // 检查特定生物权限
         String entityTypeName = entity.getType().name().toLowerCase();
-        if (!player.hasPermission("moblaunch.use.*") && !player.hasPermission("moblaunch.use." + entityTypeName)) {
-            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("no-permission-use"));
-            return false;
+        boolean hasSpecificPermission = player.hasPermission("moblaunch.use." + entityTypeName);
+
+        // 如果没有通配符权限也没有特定生物权限，则检查生物是否在配置的白名单中
+        if (!hasWildcardPermission && !hasSpecificPermission) {
+            // 检查生物类型是否在白名单中（管理员跳过此检查）
+            boolean isAdmin = player.hasPermission("moblaunch.admin");
+            if (!isAdmin && !plugin.getConfigManager().isMobAllowed(entity.getType())) {
+                player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-allowed"));
+                return false;
+            }
         }
 
-        // 检查生物类型是否在白名单中（管理员跳过此检查）
-        boolean isAdmin = player.hasPermission("moblaunch.admin");
-        if (!isAdmin && !plugin.getConfigManager().isMobAllowed(entity.getType())) {
-            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-allowed"));
+        // 检查生物是否被其他玩家声明为私有
+        if (!checkMobOwnership(player, entity)) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-owned"));
             return false;
         }
 
@@ -220,7 +229,7 @@ public class MobManager {
 
         // 计算抛出向量
         Vector direction = player.getLocation().getDirection();
-        double maxVelocity = 2.0; // 最大初速度
+        double maxVelocity = plugin.getConfigManager().getMaxVelocity(); // 使用配置的最大初速度
         double velocity = maxVelocity * (chargePercent / 100.0);
         Vector launchVelocity = direction.multiply(velocity);
 
@@ -281,7 +290,38 @@ public class MobManager {
         
         // 如果没有玩家骑乘，移除标记
         unmarkMobAsMounted(entity);
+        // 同时清理mountedMobs映射中可能残留的条目
+        cleanupMountedMobsMap(entity);
         return false;
+    }
+
+    /**
+     * 清理mountedMobs映射中与指定实体相关的条目
+     * @param entity 实体
+     */
+    private void cleanupMountedMobsMap(Entity entity) {
+        UUID playerUUID = null;
+        for (Map.Entry<UUID, Entity> entry : mountedMobs.entrySet()) {
+            if (entry.getValue().equals(entity)) {
+                playerUUID = entry.getKey();
+                break;
+            }
+        }
+        
+        if (playerUUID != null) {
+            mountedMobs.remove(playerUUID);
+            
+            // 同时取消该玩家的蓄力任务（如果存在）
+            ChargeTask chargeTask = chargingPlayers.get(playerUUID);
+            if (chargeTask != null) {
+                try {
+                    chargeTask.cancel();
+                } catch (Exception e) {
+                    // 忽略取消异常
+                }
+                chargingPlayers.remove(playerUUID);
+            }
+        }
     }
 
     /**
@@ -322,6 +362,57 @@ public class MobManager {
                 unmarkMobAsMounted(entity);
             }
         }
+    }
+
+    /**
+     * 检查玩家是否有权限抱起指定的生物（支持生物所有权系统）
+     * @param player 玩家
+     * @param entity 生物
+     * @return 是否有权限
+     */
+    private boolean checkMobOwnership(Player player, Entity entity) {
+        // 检查生物是否有自定义名称
+        if (entity.getCustomName() != null && !entity.getCustomName().isEmpty()) {
+            // 检查玩家是否是该生物的主人
+            // 生物的主人通过生物的PersistentDataContainer存储
+            PersistentDataContainer container = entity.getPersistentDataContainer();
+            NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
+            
+            // 检查是否有所有者数据
+            if (container.has(ownerKey, PersistentDataType.STRING)) {
+                String ownerUUID = container.get(ownerKey, PersistentDataType.STRING);
+                
+                // 检查当前玩家是否是所有者
+                if (!player.getUniqueId().toString().equals(ownerUUID)) {
+                    // 不是所有者，检查是否是管理员
+                    if (!player.hasPermission("moblaunch.admin")) {
+                        return false; // 不是所有者也不是管理员，拒绝访问
+                    }
+                }
+            }
+        }
+        return true; // 没有所有权限制或者玩家是所有者
+    }
+
+    /**
+     * 设置生物的所有者
+     * @param entity 生物
+     * @param player 玩家
+     */
+    public void setMobOwner(Entity entity, Player player) {
+        PersistentDataContainer container = entity.getPersistentDataContainer();
+        NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
+        container.set(ownerKey, PersistentDataType.STRING, player.getUniqueId().toString());
+    }
+
+    /**
+     * 移除生物的所有者
+     * @param entity 生物
+     */
+    public void removeMobOwner(Entity entity) {
+        PersistentDataContainer container = entity.getPersistentDataContainer();
+        NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
+        container.remove(ownerKey);
     }
 
     /**

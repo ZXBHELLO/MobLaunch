@@ -44,8 +44,16 @@ charge:
   # 当蓄力达到100%后，如果持续按住SHIFT键超过此时间，生物会自动放下
   auto-putdown-ticks: 20
 
+# 投掷配置
+launch:
+  # 最大初速度
+  max-velocity: 2.0
+
 # 语言设置
 language: zh_cn
+
+# 消息前缀
+message-prefix: "&6[MobLaunch] "
 
 # 消息显示设置
 # 设置为 false 可禁用特定消息

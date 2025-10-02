@@ -15,6 +15,8 @@ public class ConfigManager {
     private int chargeIncrementTicks;
     private int autoPutdownTicks;
     private String language;
+    private double maxVelocity;
+    private String messagePrefix;
 
     public ConfigManager(MobLaunch plugin) {
         this.plugin = plugin;
@@ -39,6 +41,8 @@ public class ConfigManager {
         chargeIncrementTicks = config.getInt("charge.increment-ticks", 1);
         autoPutdownTicks = config.getInt("charge.auto-putdown-ticks", 20);
         language = config.getString("language", "zh_cn");
+        maxVelocity = config.getDouble("launch.max-velocity", 2.0);
+        messagePrefix = config.getString("message-prefix", "&6[MobLaunch] ");
         
         // 保存配置
         plugin.saveConfig();
@@ -111,5 +115,21 @@ public class ConfigManager {
      */
     public String getLanguage() {
         return language;
+    }
+    
+    /**
+     * 获取最大初速度
+     * @return 最大初速度
+     */
+    public double getMaxVelocity() {
+        return maxVelocity;
+    }
+    
+    /**
+     * 获取消息前缀
+     * @return 消息前缀
+     */
+    public String getMessagePrefix() {
+        return messagePrefix;
     }
 }

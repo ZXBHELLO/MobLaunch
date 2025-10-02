@@ -4,11 +4,16 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 插件命令处理器
  */
-public class MobLaunchCommand implements CommandExecutor {
+public class MobLaunchCommand implements CommandExecutor, TabCompleter {
     private final MobLaunch plugin;
 
     public MobLaunchCommand(MobLaunch plugin) {
@@ -44,6 +49,27 @@ public class MobLaunchCommand implements CommandExecutor {
         }
 
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        // 检查基础权限
+        if (!sender.hasPermission("moblaunch.admin")) {
+            return Collections.emptyList();
+        }
+
+        if (args.length == 1) {
+            List<String> completions = new ArrayList<>();
+            if ("version".startsWith(args[0].toLowerCase())) {
+                completions.add("version");
+            }
+            if ("reload".startsWith(args[0].toLowerCase())) {
+                completions.add("reload");
+            }
+            return completions;
+        }
+        
+        return Collections.emptyList();
     }
 
     /**

@@ -34,7 +34,9 @@ public class MobLaunch extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
         
         // 注册命令
-        this.getCommand("moblaunch").setExecutor(new MobLaunchCommand(this));
+        MobLaunchCommand mobLaunchCommand = new MobLaunchCommand(this);
+        this.getCommand("moblaunch").setExecutor(mobLaunchCommand);
+        this.getCommand("moblaunch").setTabCompleter(mobLaunchCommand);
         
         getLogger().info("MobLaunch 插件已启用!");
     }

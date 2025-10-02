@@ -1,5 +1,6 @@
 package com.moblaunch.plugin;
 
+import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -45,6 +46,32 @@ public class LanguageManager {
                 languageConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(defConfigStream, StandardCharsets.UTF_8));
             }
         }
+        
+        // 替换版本和作者占位符
+        replacePlaceholders();
+    }
+
+    /**
+     * 替换语言配置中的占位符
+     */
+    private void replacePlaceholders() {
+        if (languageConfig != null) {
+            // 获取插件的版本和作者信息
+            String version = plugin.getDescription().getVersion();
+            String author = String.join(", ", plugin.getDescription().getAuthors());
+            
+            // 遍历所有键值对，替换包含占位符的值
+            for (String key : languageConfig.getKeys(true)) {
+                if (languageConfig.isString(key)) {
+                    String value = languageConfig.getString(key);
+                    if (value != null && (value.contains("{version}") || value.contains("{author}"))) {
+                        value = value.replace("{version}", version);
+                        value = value.replace("{author}", author);
+                        languageConfig.set(key, value);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -82,10 +109,14 @@ public class LanguageManager {
         }
         
         String message = languageConfig.getString(key, key);
+        // 添加消息前缀
+        String prefix = plugin.getConfigManager().getMessagePrefix();
+        prefix = ChatColor.translateAlternateColorCodes('&', prefix);
+        
         if (params.length > 0) {
-            return MessageFormat.format(message, params);
+            return prefix + MessageFormat.format(message, params);
         }
-        return message;
+        return prefix + message;
     }
 
     /**
