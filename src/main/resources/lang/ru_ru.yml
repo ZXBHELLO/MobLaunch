@@ -1,0 +1,24 @@
+# Russian language file for MobLaunch plugin
+
+# General messages
+no-permission-use: "У вас нет разрешения использовать эту функцию"
+no-permission-admin: "У вас нет разрешения использовать административные команды"
+mob-not-allowed: "Нет разрешения на подбор этого моба"
+mob-not-owned: "Этот моб был объявлен частной собственностью другого игрока"
+already-holding-mob: "Вы уже держите моба"
+mob-already-mounted: "Моб уже удерживается"
+pickup-success: "Попытка подобрать {0}"
+putdown-success: "Вы отпустили {0}"
+launch-message: "Запущен {1} с мощностью {0}%"
+auto-putdown-message: "Моб был автоматически отпущен из-за долгого времени зарядки"
+
+# Command messages
+command-help-title: "=== Справка MobLaunch ==="
+command-help-version: "/moblaunch version - Показать версию плагина"
+command-help-reload: "/moblaunch reload - Перезагрузить конфигурацию плагина"
+command-version-title: "=== Плагин MobLaunch ==="
+command-version-version: "Версия: {version}"
+command-version-author: "Автор: {author}"
+command-version-description: "Плагин, позволяющий игрокам поднимать и запускать мобов"
+command-reload-success: "Конфигурация успешно перезагружена"
+command-reload-failed: "Не удалось перезагрузить конфигурацию: {0}"
