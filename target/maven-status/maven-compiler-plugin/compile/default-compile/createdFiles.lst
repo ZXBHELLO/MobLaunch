@@ -1,7 +1,0 @@
-com\moblaunch\plugin\LanguageManager.class
-com\moblaunch\plugin\ConfigManager.class
-com\moblaunch\plugin\MobLaunchCommand.class
-com\moblaunch\plugin\MobManager$ChargeTask.class
-com\moblaunch\plugin\PlayerListener.class
-com\moblaunch\plugin\MobLaunch.class
-com\moblaunch\plugin\MobManager.class
