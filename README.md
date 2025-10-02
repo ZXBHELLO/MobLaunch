@@ -1,8 +1,5 @@
 # MobLaunch Plugin
 
-[中文](#moblaunch-插件) | [English](#moblaunch-plugin)
-
----
 
 ## MobLaunch 插件
 
