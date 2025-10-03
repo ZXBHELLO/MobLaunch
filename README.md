@@ -39,7 +39,7 @@ MobLaunch 是一个 Minecraft 服务器插件，允许玩家抱起生物并在�
 #### 超时自动放下
 1. 抱起生物后，按住 SHIFT 键开始蓄力
 2. 蓄力满后继续按住 SHIFT 键
-3. 如果超过设定时间（默认 30 秒），生物会自动放下
+3. 如果超过设定时间（默认 1 秒），生物会自动放下
 
 #### 声明生物所有权
 1. 获取一个命名牌并给它命名
@@ -110,7 +110,7 @@ MobLaunch is a Minecraft server plugin that allows players to pick up mobs and l
 #### Auto Put Down
 1. After picking up a mob, hold SHIFT to start charging
 2. Continue holding SHIFT after fully charged
-3. If held longer than the set time (default 30 seconds), the mob will be automatically put down
+3. If held longer than the set time (default 1 seconds), the mob will be automatically put down
 
 #### Claiming Mob Ownership
 1. Obtain a name tag and give it a name
