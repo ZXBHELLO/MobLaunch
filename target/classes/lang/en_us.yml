@@ -1,0 +1,24 @@
+# English language file for MobLaunch plugin
+
+# General messages
+no-permission-use: "You don't have permission to use this feature"
+no-permission-admin: "You don't have permission to use admin commands"
+mob-not-allowed: "No permission to pick up this mob"
+mob-not-owned: "This mob has been claimed as private by another player"
+already-holding-mob: "You are already holding a mob"
+mob-already-mounted: "Mob is already being held"
+pickup-success: "Attempting to pick up mob: {0}"
+putdown-success: "You put down {0}"
+launch-message: "Launched {1} with {0}% power"
+auto-putdown-message: "Mob has been automatically put down due to long charge time"
+
+# Command messages
+command-help-title: "=== MobLaunch Help ==="
+command-help-version: "/moblaunch version - Show plugin version"
+command-help-reload: "/moblaunch reload - Reload plugin configuration"
+command-version-title: "=== MobLaunch Plugin ==="
+command-version-version: "Version: {version}"
+command-version-author: "Author: {author}"
+command-version-description: "A plugin that allows players to pick up and launch mobs"
+command-reload-success: "Configuration reloaded successfully"
+command-reload-failed: "Failed to reload configuration: {0}"

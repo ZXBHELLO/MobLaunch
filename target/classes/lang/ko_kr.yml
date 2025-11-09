@@ -1,0 +1,24 @@
+# Korean language file for MobLaunch plugin
+
+# General messages
+no-permission-use: "이 기능을 사용할 권한이 없습니다"
+no-permission-admin: "관리자 명령어를 사용할 권한이 없습니다"
+mob-not-allowed: "이 몹을 들어올릴 권한이 없습니다"
+mob-not-owned: "이 몹은 다른 플레이어에게 소유권이 있습니다"
+already-holding-mob: "이미 몹을 들고 있습니다"
+mob-already-mounted: "몹이 이미 들려 있습니다"
+pickup-success: "{0}을(를) 들어올리려고 합니다"
+putdown-success: "{0}을(를) 내려놓았습니다"
+launch-message: "{1}을(를) {0}% 파워로 발사했습니다"
+auto-putdown-message: "충전 시간이 길어져 몹이 자동으로 내려놓아졌습니다"
+
+# Command messages
+command-help-title: "=== MobLaunch 도움말 ==="
+command-help-version: "/moblaunch version - 플러그인 버전 표시"
+command-help-reload: "/moblaunch reload - 플러그인 설정 다시 불러오기"
+command-version-title: "=== MobLaunch 플러그인 ==="
+command-version-version: "버전: {version}"
+command-version-author: "제작자: {author}"
+command-version-description: "플레이어가 몹을 들어 올리고 발사할 수 있게 하는 플러그인"
+command-reload-success: "설정을 성공적으로 다시 불러왔습니다"
+command-reload-failed: "설정 다시 불러오기를 실패했습니다: {0}"

@@ -1,0 +1,27 @@
+name: MobLaunch
+version: 1.4.0
+main: com.moblaunch.plugin.MobLaunch
+api-version: 1.21
+author: ZXBHELLO, ZKANA
+description: 抱起并投掷实体的插件
+folia-supported: true
+
+commands:
+  moblaunch:
+    description: MobLaunch 主命令
+    usage: /<command> [version|reload]
+    permission: moblaunch.admin
+    permission-message: 你没有权限使用此命令!
+    aliases: [ml]
+    tab-completer: true
+
+permissions:
+  moblaunch.use:
+    description: 使用MobLaunch功能的基础权限
+    default: true
+  moblaunch.use.*:
+    description: 使用MobLaunch功能抱起所有可抱起生物的权限(即使未配置)
+    default: op
+  moblaunch.admin:
+    description: 使用MobLaunch管理命令的权限
+    default: op
