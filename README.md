@@ -68,6 +68,6 @@ launch:
 
 *   `/moblaunch reload` - 重载配置文件
 *   `/moblaunch version` - 查看版本信息
-```
- 
+
+
 > 如果你想要改进这个项目，欢迎提交 PR！
