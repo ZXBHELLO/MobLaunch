@@ -3,7 +3,7 @@
 > 专为 Folia、Paper 和 Spigot 设计的高性能实体投掷插件。利用异步传送与区域调度器（Region Scheduler）确保线程安全，核心采用循环蓄力状态机机制。
 
 ![Platform](https://img.shields.io/badge/Platform-Folia%20%7C%20Paper%20%7C%20Spigot-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
+![License](https://img.shields.io/badge/License-Apache_2.0-green)
 
 ## 核心特性
 
