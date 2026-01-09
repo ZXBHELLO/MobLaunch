@@ -1,65 +1,65 @@
-name: Build and Release
+name: Auto Build and Release
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
+    branches: [main]
+    # 移除了 tags 和 pr 的触发，避免重复构建或非主分支发布
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: write # 必须赋予写权限才能创建 Release
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
-        cache: maven
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Build with Maven
-      run: mvn clean package
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: maven
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: MobLaunch
-        path: target/MobLaunch-*.jar
+      - name: Get Short SHA
+        id: vars
+        run: |
+          # 截取 GITHUB_SHA 的前7位
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "Current commit hash: ${GITHUB_SHA::7}"
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build with Maven
+        run: mvn clean package
 
-    steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: MobLaunch
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          # 上传 target 目录下所有的 jar 文件（排除 original- 开头的，如果有的话）
+          artifacts: "target/MobLaunch-*.jar"
+          # 排除 maven shade 插件生成的原始文件（可选，看你的pom配置）
+          # 如果你的jar包名字是固定的，可以直接写死，比如 target/MobLaunch-1.4.0.jar
 
-    - name: Get tag name
-      id: tag
-      run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          # Release 的标题和 Tag 都使用短哈希
+          name: "Build ${{ env.SHORT_SHA }}"
+          tag: "${{ env.SHORT_SHA }}"
 
-    - name: Create Release
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: "MobLaunch-*.jar"
-        name: Release ${{ env.TAG_NAME }}
-        tag: ${{ env.TAG_NAME }}
-        body: |
-          ## 更新内容
-          
-          - 自动构建的版本
-          
-          ## 安装说明
-          
-          1. 下载附带的JAR文件
-          2. 将其放置在您的Minecraft服务器的 `plugins` 目录中
-          3. 重启服务器即可使用
-          
-          如需更多帮助，请参阅 [README.md](https://github.com/${{ github.repository }}/blob/master/README.md)
+          # 如果这个 Tag 不存在，Action 会自动创建
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+          body: |
+            ## 自动构建版本: ${{ env.SHORT_SHA }}
+
+            此版本由 GitHub Actions 在提交 ${{ env.SHORT_SHA }} 后自动构建。
+
+            ### 🛠️ 变更信息
+            - Commit: ${{ github.sha }}
+            - Branch: ${{ github.ref_name }}
+
+            ### 📦 安装说明
+            1. 下载下方的 JAR 文件
+            2. 放入服务器 plugins 文件夹
+            3. 重启服务器
