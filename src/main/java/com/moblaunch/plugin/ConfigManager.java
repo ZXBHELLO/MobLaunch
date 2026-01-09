@@ -4,59 +4,57 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.EntityType;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 配置管理器，用于处理插件配置
  */
 public class ConfigManager {
     private final MobLaunch plugin;
-    private List<EntityType> allowedMobs;
+    // 使用 Set 自动去重且查询更快
+    private Set<EntityType> allowedMobs;
     private int chargeIncrementTicks;
-    private int autoPutdownTicks;
-    private String language;
+    private int pauseAtMaxTicks; // 满蓄力停顿tick
+    private int pauseAtZeroTicks; // 0蓄力停顿tick
     private double maxVelocity;
     private String messagePrefix;
 
     public ConfigManager(MobLaunch plugin) {
         this.plugin = plugin;
-        this.allowedMobs = new ArrayList<>();
+        this.allowedMobs = new HashSet<>();
     }
 
     /**
      * 加载配置文件
      */
     public void loadConfig() {
-        // 保存默认配置文件
         plugin.saveDefaultConfig();
         plugin.reloadConfig();
-        
+
         FileConfiguration config = plugin.getConfig();
-        
-        // 设置默认值
         config.options().copyDefaults(true);
-        
-        // 加载配置项
+
         loadAllowedMobs(config);
+
+        // 加载蓄力相关配置
         chargeIncrementTicks = config.getInt("charge.increment-ticks", 1);
-        autoPutdownTicks = config.getInt("charge.auto-putdown-ticks", 20);
-        language = config.getString("language", "zh_cn");
+        pauseAtMaxTicks = config.getInt("charge.pause-at-max-ticks", 10);
+        pauseAtZeroTicks = config.getInt("charge.pause-at-zero-ticks", 10);
+
+        // 移除了语言设置读取
+
         maxVelocity = config.getDouble("launch.max-velocity", 2.0);
         messagePrefix = config.getString("message-prefix", "&6[MobLaunch] ");
-        
-        // 保存配置
+
         plugin.saveConfig();
     }
 
-    /**
-     * 加载允许的生物类型列表
-     * @param config 配置文件
-     */
     private void loadAllowedMobs(FileConfiguration config) {
         allowedMobs.clear();
         List<String> mobStrings = config.getStringList("allowed-mobs");
-        
-        // 如果配置为空，添加一些默认生物
+
         if (mobStrings.isEmpty()) {
             mobStrings.add("PIG");
             mobStrings.add("COW");
@@ -64,8 +62,7 @@ public class ConfigManager {
             mobStrings.add("SHEEP");
             config.set("allowed-mobs", mobStrings);
         }
-        
-        // 将字符串转换为EntityType
+
         for (String mobString : mobStrings) {
             try {
                 EntityType entityType = EntityType.valueOf(mobString.toUpperCase());
@@ -76,59 +73,30 @@ public class ConfigManager {
         }
     }
 
-    /**
-     * 获取允许的生物列表
-     * @return 允许的生物列表
-     */
     public List<EntityType> getAllowedMobs() {
         return new ArrayList<>(allowedMobs);
     }
 
-    /**
-     * 检查特定生物是否被允许
-     * @param entityType 生物类型
-     * @return 是否被允许
-     */
     public boolean isMobAllowed(EntityType entityType) {
         return allowedMobs.contains(entityType);
     }
 
-    /**
-     * 获取蓄力增加所需ticks
-     * @return ticks数
-     */
     public int getChargeIncrementTicks() {
         return chargeIncrementTicks;
     }
 
-    /**
-     * 获取自动放下生物的ticks数
-     * @return ticks数
-     */
-    public int getAutoPutdownTicks() {
-        return autoPutdownTicks;
+    public int getPauseAtMaxTicks() {
+        return pauseAtMaxTicks;
     }
 
-    /**
-     * 获取语言设置
-     * @return 语言代码
-     */
-    public String getLanguage() {
-        return language;
+    public int getPauseAtZeroTicks() {
+        return pauseAtZeroTicks;
     }
-    
-    /**
-     * 获取最大初速度
-     * @return 最大初速度
-     */
+
     public double getMaxVelocity() {
         return maxVelocity;
     }
-    
-    /**
-     * 获取消息前缀
-     * @return 消息前缀
-     */
+
     public String getMessagePrefix() {
         return messagePrefix;
     }

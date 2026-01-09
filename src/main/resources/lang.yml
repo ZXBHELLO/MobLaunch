@@ -1,0 +1,27 @@
+# MobLaunch 语言文件
+
+# 权限相关
+no-permission-use: "&c你没有权限抱起生物。"
+no-permission-admin: "&c你没有权限使用此命令。"
+
+# 交互相关
+mob-not-allowed: "&c不允许抱起这种生物。"
+already-holding-mob: "&c你已经抱起了一个生物！"
+mob-already-mounted: "&c这个生物已经被抱起了。"
+mob-not-owned: "&c这个生物属于其他人，你不能抱起它。"
+pickup-success: "&a你抱起了 &e{0}&a。"
+putdown-success: "&a你放下了 &e{0}&a。"
+launch-message: "&a你以 &e{0}% &a的力量抛出了 &e{1}&a！"
+
+# 命令相关
+command-help-title: "&6--- MobLaunch 帮助 ---"
+command-help-version: "&e/moblaunch version &7- 查看插件版本"
+command-help-reload: "&e/moblaunch reload &7- 重载配置文件"
+
+command-version-title: "&6--- MobLaunch 信息 ---"
+command-version-version: "&7版本: &e{version}"
+command-version-author: "&7作者: &e{author}"
+command-version-description: "&7轻量级生物投掷插件"
+
+command-reload-success: "&a配置文件已成功重载！"
+command-reload-failed: "&c重载失败: {0}"

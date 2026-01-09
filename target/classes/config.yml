@@ -1,7 +1,6 @@
 # MobLaunch 配置文件
 
 # 可抱起的生物列表
-# 可以根据需要添加或删除生物类型
 allowed-mobs:
 - ALLAY
 - AXOLOTL
@@ -36,65 +35,36 @@ allowed-mobs:
 
 # 蓄力配置
 charge:
-  # 每增加 5% 蓄力等级所需的 ticks 数 (20 ticks = 1 秒)
-  # 数值越小蓄力速度越快
+  # 每增加/减少 5% 蓄力等级所需的 ticks 数 (20 ticks = 1 秒)
   increment-ticks: 1
-  
-  # 蓄力条满后多少 tick 自动放下生物 (20 ticks = 1 秒)
-  # 当蓄力达到100%后，如果持续按住SHIFT键超过此时间，生物会自动放下
-  auto-putdown-ticks: 20
+
+  # 蓄力达到 100% 后停顿多久开始减少 (ticks)
+  # 默认 10 ticks (0.5秒)
+  pause-at-max-ticks: 10
+
+  # 蓄力减少到 0% 后停顿多久开始重新增加 (ticks)
+  # 在这个停顿期间松开潜行键会放下生物
+  # 默认 10 ticks (0.5秒)
+  pause-at-zero-ticks: 10
 
 # 投掷配置
 launch:
-  # 最大初速度
+  # 最大初速度 (蓄力 100% 时的速度)
   max-velocity: 2.0
-
-# 语言设置
-language: zh_cn
 
 # 消息前缀
 message-prefix: "&6[MobLaunch] "
 
 # 消息显示设置
-# 设置为 false 可禁用特定消息
-# 这允许服务器管理员控制哪些消息显示给玩家
 messages:
-  # 权限拒绝消息
-  # 当玩家没有权限使用插件基本功能时显示
   no-permission-use: true
-  
-  # 当玩家没有权限使用管理命令时显示
   no-permission-admin: true
-  
-  # 生物交互消息
-  # 当玩家尝试抱起不允许的生物时显示
   mob-not-allowed: true
-  
-  # 当玩家已经抱起一个生物时尝试抱起另一个生物时显示
   already-holding-mob: true
-  
-  # 当生物已被其他玩家抱起时显示
   mob-already-mounted: true
-  
-  # 成功抱起生物时显示
   pickup-success: true
-  
-  # 成功放下生物时显示
   putdown-success: true
-  
-  # 投掷生物时显示
   launch-message: true
-  
-  # 自动放下消息
-  # 当生物因蓄力时间过长而自动放下时显示
-  auto-putdown-message: true
-  
-  # 命令消息
-  # 显示命令帮助信息
   command-version-info: true
-  
-  # 重载配置成功时显示
   command-reload-success: true
-  
-  # 重载配置失败时显示
   command-reload-failed: true
