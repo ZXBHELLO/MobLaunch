@@ -4,6 +4,7 @@ import org.bukkit.Material;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
@@ -24,11 +25,23 @@ public class PlayerListener implements Listener {
     }
 
     /**
-     * Handles player right-click on entity event
+     * 处理玩家右键点击实体（抱起逻辑）
+     * 
+     * 兼容性更新：
+     * 1. EventPriority.HIGH: 让我们在领地插件之后运行
+     * 2. ignoreCancelled = true: 如果领地插件取消了事件，我们也忽略它
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
+        // 双手必须为空且是主手交互
         if (event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+
+        // --- 再次检查取消状态 (双重保险) ---
+        // 如果 Residence/Towny/WorldGuard 判定玩家无权交互，它们会将事件设为 Cancelled
+        // 此时我们直接返回，不再执行抱起，这就实现了完美兼容。
+        if (event.isCancelled()) {
             return;
         }
 
@@ -47,7 +60,6 @@ public class PlayerListener implements Listener {
 
         // 2. 抱起逻辑
         if (player.isSneaking()) {
-            // 要求：主手和副手必须都为空
             if (!isHandsEmpty(player)) {
                 return;
             }
@@ -58,7 +70,9 @@ public class PlayerListener implements Listener {
                 return;
             }
 
+            // 执行抱起
             if (plugin.getMobManager().pickupMob(player, entity)) {
+                // 只有在成功抱起后，才取消原版交互
                 event.setCancelled(true);
             }
         }
@@ -74,7 +88,10 @@ public class PlayerListener implements Listener {
                 (offHand == null || offHand.getType() == Material.AIR);
     }
 
-    @EventHandler
+    /**
+     * 防止与已抱起的生物交互
+     */
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onPlayerInteractWithHeldEntity(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();
         Entity entity = event.getRightClicked();
@@ -85,8 +102,17 @@ public class PlayerListener implements Listener {
         }
     }
 
-    @EventHandler
+    /**
+     * 防止伤害已抱起的生物
+     * 同样添加兼容性支持
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerDamageHeldEntity(EntityDamageByEntityEvent event) {
+        // 如果 WorldGuard 禁止了 PVP/PVE，这里会自动跳过
+        if (event.isCancelled()) {
+            return;
+        }
+
         if (event.getDamager() instanceof Player) {
             Player player = (Player) event.getDamager();
             Entity entity = event.getEntity();
@@ -100,6 +126,7 @@ public class PlayerListener implements Listener {
 
     /**
      * 潜行状态切换 (蓄力控制)
+     * 这个事件通常不受领地插件控制，保持原样即可
      */
     @EventHandler
     public void onPlayerToggleSneak(PlayerToggleSneakEvent event) {
@@ -110,14 +137,11 @@ public class PlayerListener implements Listener {
         }
 
         if (event.isSneaking()) {
-            // 要求：蓄力时也必须双手为空
             if (!isHandsEmpty(player)) {
                 return;
             }
-
             plugin.getMobManager().startCharging(player);
         } else {
-            // 松开 Shift，停止蓄力并根据进度决定是投掷还是放下
             plugin.getMobManager().stopChargingAndLaunch(player);
         }
     }

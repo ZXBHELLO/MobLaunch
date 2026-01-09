@@ -33,11 +33,8 @@ public class MobManager {
 
     // --- 抱起逻辑 (Pickup) ---
     public boolean pickupMob(Player player, Entity entity) {
-        // 基础检查
         if (entity == null || !entity.isValid())
             return false;
-
-        // 防止抱起玩家自己
         if (entity.getUniqueId().equals(player.getUniqueId()))
             return false;
 
@@ -73,18 +70,21 @@ public class MobManager {
             return false;
         }
 
-        // --- 修复：Folia 兼容的异步传送 ---
+        // --- API 事件触发 ---
+        MobPickupEvent event = new MobPickupEvent(player, entity);
+        Bukkit.getPluginManager().callEvent(event);
 
-        // 定义抱起逻辑的核心代码（封装成 Runnable 以便复用）
+        if (event.isCancelled()) {
+            return false;
+        }
+        // ------------------
+
         Runnable mountLogic = () -> {
-            // 再次检查有效性（因为异步过程可能有时间差）
             if (!player.isValid() || !entity.isValid())
                 return;
 
-            // 执行抱起
             player.addPassenger(entity);
 
-            // 更新数据
             markMobAsMounted(entity);
             mountedMobs.put(player.getUniqueId(), entity);
             player.sendMessage(
@@ -92,22 +92,16 @@ public class MobManager {
         };
 
         try {
-            // 尝试使用 Paper/Folia 的异步传送 API
             entity.teleportAsync(player.getLocation()).thenAccept(success -> {
                 if (success) {
-                    // 传送成功后，在下一 tick 执行抱起
-                    // 这里使用 entity.getScheduler() 确保在正确的区域线程执行
                     try {
                         entity.getScheduler().run(plugin, (task) -> mountLogic.run(), null);
                     } catch (Throwable e) {
-                        // 如果 entity.getScheduler() 不存在 (旧版 Spigot)，直接运行
                         mountLogic.run();
                     }
                 }
             });
         } catch (Throwable e) {
-            // 如果不支持 teleportAsync (非常旧的 Spigot)，回退到同步传送
-            // 注意：Folia 不会进这里，因为 Folia 支持 teleportAsync
             try {
                 entity.teleport(player.getLocation());
                 mountLogic.run();
@@ -117,8 +111,6 @@ public class MobManager {
             }
         }
 
-        // 返回 true 以取消原本的交互事件（防止打开生物界面）
-        // 实际的抱起会在异步回调中发生
         return true;
     }
 
@@ -138,7 +130,6 @@ public class MobManager {
 
         mountedMobs.remove(player.getUniqueId());
 
-        // 清理蓄力任务
         ChargeTask chargeTask = chargingPlayers.get(player.getUniqueId());
         if (chargeTask != null) {
             try {
@@ -159,7 +150,6 @@ public class MobManager {
             return;
         }
 
-        // 清理旧任务
         ChargeTask existingTask = chargingPlayers.get(player.getUniqueId());
         if (existingTask != null) {
             try {
@@ -171,15 +161,12 @@ public class MobManager {
 
         ChargeTask chargeTask = new ChargeTask(player);
 
-        // Folia / Spigot 兼容调度
         try {
-            // Folia
             Object task = player.getScheduler().runAtFixedRate(plugin, (scheduledTask) -> {
                 chargeTask.run();
             }, null, 1L, plugin.getConfigManager().getChargeIncrementTicks());
             chargingPlayers.put(player.getUniqueId(), chargeTask);
         } catch (Throwable e) {
-            // Spigot
             try {
                 chargeTask.runTaskTimer(plugin, 1L, plugin.getConfigManager().getChargeIncrementTicks());
                 chargeTask.markScheduled();
@@ -199,7 +186,6 @@ public class MobManager {
 
         int chargePercent = chargeTask.getChargePercent();
 
-        // 停止任务
         if (chargeTask.isScheduled()) {
             try {
                 chargeTask.cancel();
@@ -212,19 +198,32 @@ public class MobManager {
         }
         chargingPlayers.remove(player.getUniqueId());
 
-        // 如果蓄力值为0（处于底部停顿期），则直接放下生物
         if (chargePercent <= 0) {
             putdownMob(player);
             return;
         }
-
-        // --- 否则执行投掷逻辑 ---
 
         Entity entity = mountedMobs.get(player.getUniqueId());
         if (entity == null || !entity.isValid()) {
             mountedMobs.remove(player.getUniqueId());
             return;
         }
+
+        Vector direction = player.getLocation().getDirection();
+        double maxVelocity = plugin.getConfigManager().getMaxVelocity();
+        double velocity = maxVelocity * (chargePercent / 100.0);
+        Vector launchVelocity = direction.multiply(velocity);
+
+        // --- API 事件触发 ---
+        MobLaunchEvent event = new MobLaunchEvent(player, entity, launchVelocity);
+        Bukkit.getPluginManager().callEvent(event);
+
+        if (event.isCancelled()) {
+            putdownMob(player);
+            return;
+        }
+        final Vector finalVelocity = event.getVelocity();
+        // ------------------
 
         unmarkMobAsMounted(entity);
         if (player.isValid()) {
@@ -233,16 +232,9 @@ public class MobManager {
 
         mountedMobs.remove(player.getUniqueId());
 
-        // 计算向量
-        Vector direction = player.getLocation().getDirection();
-        double maxVelocity = plugin.getConfigManager().getMaxVelocity();
-        double velocity = maxVelocity * (chargePercent / 100.0);
-        Vector launchVelocity = direction.multiply(velocity);
-
-        // 延迟 1 tick 应用速度 (兼容性修复)
         Runnable launchRunnable = () -> {
             if (entity.isValid()) {
-                entity.setVelocity(launchVelocity);
+                entity.setVelocity(finalVelocity);
             }
         };
 
@@ -274,7 +266,6 @@ public class MobManager {
     public boolean isMobMounted(Entity entity) {
         if (entity == null || !entity.isValid())
             return false;
-
         PersistentDataContainer container = entity.getPersistentDataContainer();
         boolean isMarked = container.has(mobLaunchKey, PersistentDataType.BYTE);
         if (!isMarked)
@@ -369,16 +360,12 @@ public class MobManager {
         private boolean isCancelled = false;
         private boolean isScheduled = false;
 
-        // 状态机枚举
         private enum ChargeState {
-            INCREASING, // 增加中
-            MAX_PAUSE, // 满力停顿
-            DECREASING, // 减少中
-            ZERO_PAUSE // 零力停顿
+            INCREASING, MAX_PAUSE, DECREASING, ZERO_PAUSE
         }
 
         private ChargeState currentState = ChargeState.INCREASING;
-        private int pauseTicksCounter = 0; // 用于计算停顿时间
+        private int pauseTicksCounter = 0;
 
         public ChargeTask(Player player) {
             this.player = player;
@@ -394,33 +381,29 @@ public class MobManager {
                 return;
             }
 
-            // 状态机逻辑
             switch (currentState) {
                 case INCREASING:
-                    chargePercent += 5; // 每次增加5%
+                    chargePercent += 5;
                     if (chargePercent >= 100) {
                         chargePercent = 100;
                         currentState = ChargeState.MAX_PAUSE;
                         pauseTicksCounter = 0;
                     }
                     break;
-
                 case MAX_PAUSE:
                     pauseTicksCounter++;
                     if (pauseTicksCounter >= plugin.getConfigManager().getPauseAtMaxTicks()) {
                         currentState = ChargeState.DECREASING;
                     }
                     break;
-
                 case DECREASING:
-                    chargePercent -= 5; // 每次减少5%
+                    chargePercent -= 5;
                     if (chargePercent <= 0) {
                         chargePercent = 0;
                         currentState = ChargeState.ZERO_PAUSE;
                         pauseTicksCounter = 0;
                     }
                     break;
-
                 case ZERO_PAUSE:
                     pauseTicksCounter++;
                     if (pauseTicksCounter >= plugin.getConfigManager().getPauseAtZeroTicks()) {
@@ -428,7 +411,6 @@ public class MobManager {
                     }
                     break;
             }
-
             displayChargeBar(player, chargePercent);
         }
 
@@ -456,7 +438,6 @@ public class MobManager {
         }
 
         private void displayChargeBar(Player player, int percent) {
-            // 特殊状态显示：当处于0停顿时，提示可以放下
             if (currentState == ChargeState.ZERO_PAUSE) {
                 player.sendActionBar(ChatColor.GRAY + "[ " + ChatColor.YELLOW + "松开潜行放下生物" + ChatColor.GRAY + " ]");
                 return;
@@ -464,23 +445,18 @@ public class MobManager {
 
             int totalBars = 40;
             int filledBars = (int) (percent / 2.5);
-
             StringBuilder bar = new StringBuilder();
 
-            // 根据状态改变颜色
             ChatColor fillColor = (currentState == ChargeState.INCREASING) ? ChatColor.GREEN : ChatColor.RED;
             if (currentState == ChargeState.MAX_PAUSE)
                 fillColor = ChatColor.GOLD;
 
             bar.append(fillColor);
-            for (int i = 0; i < filledBars; i++) {
+            for (int i = 0; i < filledBars; i++)
                 bar.append("|");
-            }
-
             bar.append(ChatColor.WHITE);
-            for (int i = filledBars; i < totalBars; i++) {
+            for (int i = filledBars; i < totalBars; i++)
                 bar.append("|");
-            }
 
             player.sendActionBar(bar.toString());
         }

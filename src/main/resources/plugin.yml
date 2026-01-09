@@ -6,21 +6,32 @@ author: ZXBHELLO, ZKANA
 description: 抱起并投掷实体的插件
 folia-supported: true
 
+# --- 新增：软依赖列表 ---
+# 声明这些依赖可以确保 MobLaunch 在这些保护插件之后加载
+# 从而让 MobLaunch 能够正确识别它们是否取消了交互事件（防止偷生物）
+softdepend:
+- WorldGuard
+- Residence
+- Towny
+- Lands
+- Dominion
+- GriefPrevention
+- PlotSquared
+
 commands:
   moblaunch:
     description: MobLaunch 主命令
     usage: /<command> [version|reload]
     permission: moblaunch.admin
     permission-message: 你没有权限使用此命令!
-    aliases: [ml]
-    tab-completer: true
+    aliases: [ ml ]
 
 permissions:
   moblaunch.use:
     description: 使用MobLaunch功能的基础权限
     default: true
   moblaunch.use.*:
-    description: 使用MobLaunch功能抱起所有可抱起生物的权限(即使未配置)
+    description: 使用MobLaunch功能抱起所有可抱起生物的权限(即使未在config.yml中配置)
     default: op
   moblaunch.admin:
     description: 使用MobLaunch管理命令的权限
