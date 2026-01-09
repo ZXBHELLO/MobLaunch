@@ -3,10 +3,11 @@ name: Auto Build and Release
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+    # 移除了 tags 和 pr 的触发，避免重复构建或非主分支发布
+  workflow_dispatch: # 允许手动触发
 
 permissions:
-  contents: write
+  contents: write # 必须赋予写权限才能创建 Release
 
 jobs:
   build-and-release:
@@ -23,18 +24,12 @@ jobs:
           distribution: "temurin"
           cache: maven
 
-      # --- 新增步骤：获取 Commit 信息 ---
-      - name: Get Commit Details
-        id: details
+      - name: Get Short SHA
+        id: vars
         run: |
-          # 1. 获取短哈希
+          # 截取 GITHUB_SHA 的前7位
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-
-          # 2. 获取完整的 Commit Message (处理多行文本)
-          # 使用 EOF 写入法防止特殊字符破坏 YAML 结构
-          echo "COMMIT_MSG<<EOF" >> $GITHUB_ENV
-          echo "${{ github.event.head_commit.message }}" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "Current commit hash: ${GITHUB_SHA::7}"
 
       - name: Build with Maven
         run: mvn clean package
@@ -42,30 +37,29 @@ jobs:
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
+          # 上传 target 目录下所有的 jar 文件（排除 original- 开头的，如果有的话）
           artifacts: "target/MobLaunch-*.jar"
+          # 排除 maven shade 插件生成的原始文件（可选，看你的pom配置）
+          # 如果你的jar包名字是固定的，可以直接写死，比如 target/MobLaunch-1.4.0.jar
+
+          # Release 的标题和 Tag 都使用短哈希
           name: "Build ${{ env.SHORT_SHA }}"
           tag: "${{ env.SHORT_SHA }}"
+
+          # 如果这个 Tag 不存在，Action 会自动创建
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-          # --- 修改部分：美化更新日志 ---
           body: |
-            ## 🤖 自动构建版本: ${{ env.SHORT_SHA }}
+            ## 自动构建版本: ${{ env.SHORT_SHA }}
 
-            ### 📝 更新日志 (Change Log)
+            此版本由 GitHub Actions 在提交 ${{ env.SHORT_SHA }} 后自动构建。
 
-            ```text
-            ${{ env.COMMIT_MSG }}
-            ```
-
-            ---
-
-            ### ℹ️ 构建信息
-            - **提交者**: @${{ github.actor }}
-            - **分支**: ${{ github.ref_name }}
-            - **哈希**: ${{ github.sha }}
+            ### 🛠️ 变更信息
+            - Commit: ${{ github.sha }}
+            - Branch: ${{ github.ref_name }}
 
             ### 📦 安装说明
-            1. 下载下方的 `MobLaunch-*.jar` 文件
-            2. 放入服务器 `plugins` 文件夹
+            1. 下载下方的 JAR 文件
+            2. 放入服务器 plugins 文件夹
             3. 重启服务器
