@@ -1,0 +1,1242 @@
+好的，这是整合了所有优化（物理抛物线修复、自定义音效系统、强制安全机制、Folia 兼容性）后的完整项目源代码。
+
+# MobLaunch 项目完整源代码 (v1.5.0)
+
+## 项目概述
+这是一个为 Minecraft Folia/Paper/Spigot 服务器设计的插件，允许玩家抱起生物并在蓄力后将其投掷出去。
+
+## 项目结构
+- src/main/java/com/moblaunch/plugin/ - Java源代码
+  - ConfigManager.java - 配置管理器 (增强版)
+  - LanguageManager.java - 语言管理器
+  - MobLaunch.java - 插件主类
+  - MobLaunchCommand.java - 命令处理器
+  - MobLaunchEvent.java - 投掷事件
+  - MobManager.java - 生物管理器 (核心逻辑)
+  - MobPickupEvent.java - 抱起事件
+  - PlayerListener.java - 玩家事件监听器 (安全处理)
+- src/main/resources/ - 资源文件
+  - config.yml - 详细配置文件
+  - lang.yml - 默认语言文件
+  - plugin.yml - 插件描述文件
+- pom.xml - Maven项目配置
+- settings.xml - Maven设置配置
+- README.md - 项目说明文档
+
+---
+
+## Java 源代码文件
+
+### ConfigManager.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.Sound;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.EntityType;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.logging.Level;
+
+/**
+ * 配置管理器
+ * 处理物理参数、音效配置及功能开关
+ */
+public class ConfigManager {
+    private final MobLaunch plugin;
+    private Set<EntityType> allowedMobs;
+
+    // 物理参数
+    private double velocityMultiplier;
+    private double verticalBias;
+
+    // 蓄力参数
+    private int chargeStep;
+    private int chargeIncrementTicks;
+    private int pauseAtMaxTicks;
+    private int pauseAtZeroTicks;
+
+    // 开关
+    private boolean disableFallDamage;
+    private boolean consumeNametagCreative;
+    private boolean enableActionBar;
+
+    // 视觉
+    private String barChar;
+    private int barLength;
+    private String colorCharging;
+    private String colorFull;
+    private String colorDecreasing;
+
+    private String messagePrefix;
+
+    public ConfigManager(MobLaunch plugin) {
+        this.plugin = plugin;
+        this.allowedMobs = new HashSet<>();
+    }
+
+    public void loadConfig() {
+        plugin.saveDefaultConfig();
+        plugin.reloadConfig();
+
+        FileConfiguration config = plugin.getConfig();
+        config.options().copyDefaults(true);
+
+        loadAllowedMobs(config);
+
+        // 物理
+        velocityMultiplier = config.getDouble("launch.velocity-multiplier", 1.8);
+        verticalBias = config.getDouble("launch.vertical-bias", 0.3);
+
+        // 蓄力
+        chargeStep = config.getInt("charge.step-percentage", 5);
+        chargeIncrementTicks = config.getInt("charge.increment-ticks", 1);
+        pauseAtMaxTicks = config.getInt("charge.pause-at-max-ticks", 15);
+        pauseAtZeroTicks = config.getInt("charge.pause-at-zero-ticks", 15);
+
+        // 保护与开关
+        disableFallDamage = config.getBoolean("protection.disable-fall-damage", true);
+        consumeNametagCreative = config.getBoolean("protection.consume-nametag-creative", false);
+        
+        // 视觉
+        enableActionBar = config.getBoolean("visuals.enable-action-bar", true);
+        barChar = config.getString("visuals.bar-char", "|");
+        barLength = config.getInt("visuals.bar-length", 40);
+        colorCharging = config.getString("visuals.color-charging", "&a");
+        colorFull = config.getString("visuals.color-full", "&6");
+        colorDecreasing = config.getString("visuals.color-decreasing", "&c");
+
+        messagePrefix = config.getString("message-prefix", "&6[MobLaunch] ");
+
+        plugin.saveConfig();
+    }
+
+    private void loadAllowedMobs(FileConfiguration config) {
+        allowedMobs.clear();
+        List<String> mobStrings = config.getStringList("allowed-mobs");
+        if (mobStrings.isEmpty()) {
+            mobStrings.add("PIG");
+            config.set("allowed-mobs", mobStrings);
+        }
+        for (String mobString : mobStrings) {
+            try {
+                allowedMobs.add(EntityType.valueOf(mobString.toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("无效的生物类型: " + mobString);
+            }
+        }
+    }
+
+    // --- 音效读取辅助类 ---
+    public static class SoundConfig {
+        public Sound sound;
+        public float volume;
+        public float pitch;
+        public boolean enabled;
+
+        public SoundConfig(Sound sound, double volume, double pitch, boolean enabled) {
+            this.sound = sound;
+            this.volume = (float) volume;
+            this.pitch = (float) pitch;
+            this.enabled = enabled;
+        }
+    }
+
+    public SoundConfig getSound(String path) {
+        FileConfiguration config = plugin.getConfig();
+        
+        if (!config.getBoolean("sounds." + path + ".enabled", true)) {
+            return new SoundConfig(null, 0, 0, false);
+        }
+
+        String soundName = config.getString("sounds." + path + ".sound", "none");
+        if ("none".equalsIgnoreCase(soundName)) {
+            return new SoundConfig(null, 0, 0, false);
+        }
+
+        Sound sound = null;
+        try {
+            sound = Sound.valueOf(soundName.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            plugin.getLogger().log(Level.WARNING, "无效音效名: " + soundName + " (路径: sounds." + path + ")");
+            return new SoundConfig(null, 0, 0, false);
+        }
+
+        double vol = config.getDouble("sounds." + path + ".volume", 1.0);
+        double pit = config.getDouble("sounds." + path + ".pitch", 1.0);
+        
+        return new SoundConfig(sound, vol, pit, true);
+    }
+
+    // Getters
+    public List<EntityType> getAllowedMobs() { return new ArrayList<>(allowedMobs); }
+    public boolean isMobAllowed(EntityType type) { return allowedMobs.contains(type); }
+    public double getVelocityMultiplier() { return velocityMultiplier; }
+    public double getVerticalBias() { return verticalBias; }
+    public int getChargeStep() { return chargeStep; }
+    public int getChargeIncrementTicks() { return chargeIncrementTicks; }
+    public int getPauseAtMaxTicks() { return pauseAtMaxTicks; }
+    public int getPauseAtZeroTicks() { return pauseAtZeroTicks; }
+    public boolean isDisableFallDamage() { return disableFallDamage; }
+    public boolean isConsumeNametagCreative() { return consumeNametagCreative; }
+    public boolean isEnableActionBar() { return enableActionBar; }
+    public String getBarChar() { return barChar; }
+    public int getBarLength() { return barLength; }
+    public String getColorCharging() { return colorCharging; }
+    public String getColorFull() { return colorFull; }
+    public String getColorDecreasing() { return colorDecreasing; }
+    public String getMessagePrefix() { return messagePrefix; }
+}
+```
+
+### LanguageManager.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
+
+/**
+ * 语言管理器
+ */
+public class LanguageManager {
+    private final MobLaunch plugin;
+    private YamlConfiguration languageConfig;
+    private final String LANG_FILE_NAME = "lang.yml";
+
+    public LanguageManager(MobLaunch plugin) {
+        this.plugin = plugin;
+        loadLanguage();
+    }
+
+    public void loadLanguage() {
+        File languageFile = new File(plugin.getDataFolder(), LANG_FILE_NAME);
+        if (!languageFile.exists()) {
+            plugin.saveResource(LANG_FILE_NAME, false);
+        }
+        languageConfig = YamlConfiguration.loadConfiguration(languageFile);
+        if (languageConfig.getKeys(false).isEmpty()) {
+            InputStream defConfigStream = plugin.getResource(LANG_FILE_NAME);
+            if (defConfigStream != null) {
+                languageConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(defConfigStream, StandardCharsets.UTF_8));
+            }
+        }
+    }
+
+    public String getMessage(String key, Object... params) {
+        if (languageConfig == null) return key;
+        String message = languageConfig.getString(key, key);
+        if (message != null) message = message.replace("'", "''");
+        String prefix = plugin.getConfigManager().getMessagePrefix();
+        String result = (params.length > 0) ? prefix + MessageFormat.format(message, params) : prefix + message;
+        return ChatColor.translateAlternateColorCodes('&', result);
+    }
+}
+```
+
+### MobLaunch.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.plugin.java.JavaPlugin;
+
+public class MobLaunch extends JavaPlugin {
+
+    private static MobLaunch instance;
+    private MobManager mobManager;
+    private ConfigManager configManager;
+    private LanguageManager languageManager;
+
+    @Override
+    public void onEnable() {
+        instance = this;
+        
+        languageManager = new LanguageManager(this);
+        configManager = new ConfigManager(this);
+        configManager.loadConfig();
+        languageManager.loadLanguage();
+        
+        mobManager = new MobManager(this);
+        
+        getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
+        
+        MobLaunchCommand cmd = new MobLaunchCommand(this);
+        this.getCommand("moblaunch").setExecutor(cmd);
+        this.getCommand("moblaunch").setTabCompleter(cmd);
+        
+        getLogger().info("MobLaunch 插件已启用 (Folia Supported)!");
+    }
+
+    @Override
+    public void onDisable() {
+        if (mobManager != null) {
+            mobManager.removeAllMountedMobs();
+        }
+    }
+    
+    public static MobLaunch getInstance() { return instance; }
+    public MobManager getMobManager() { return mobManager; }
+    public ConfigManager getConfigManager() { return configManager; }
+    public LanguageManager getLanguageManager() { return languageManager; }
+}
+```
+
+### MobLaunchCommand.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.ChatColor;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
+
+import java.util.Collections;
+import java.util.List;
+
+public class MobLaunchCommand implements CommandExecutor, TabCompleter {
+    private final MobLaunch plugin;
+
+    public MobLaunchCommand(MobLaunch plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission("moblaunch.admin")) {
+            sender.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("no-permission-admin"));
+            return true;
+        }
+
+        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
+            plugin.reloadConfig();
+            plugin.getConfigManager().loadConfig();
+            plugin.getLanguageManager().loadLanguage();
+            sender.sendMessage(ChatColor.GREEN + plugin.getLanguageManager().getMessage("command-reload-success"));
+            return true;
+        }
+        
+        sender.sendMessage(ChatColor.GOLD + "MobLaunch v" + plugin.getDescription().getVersion());
+        return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!sender.hasPermission("moblaunch.admin")) return Collections.emptyList();
+        if (args.length == 1) return Collections.singletonList("reload");
+        return Collections.emptyList();
+    }
+}
+```
+
+### MobLaunchEvent.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
+import org.bukkit.event.Event;
+import org.bukkit.event.HandlerList;
+import org.bukkit.util.Vector;
+import org.jetbrains.annotations.NotNull;
+
+public class MobLaunchEvent extends Event implements Cancellable {
+    private static final HandlerList handlers = new HandlerList();
+    private boolean cancelled = false;
+    private final Player player;
+    private final Entity entity;
+    private Vector velocity;
+
+    public MobLaunchEvent(Player player, Entity entity, Vector velocity) {
+        this.player = player;
+        this.entity = entity;
+        this.velocity = velocity;
+    }
+    public Player getPlayer() { return player; }
+    public Entity getEntity() { return entity; }
+    public Vector getVelocity() { return velocity; }
+    public void setVelocity(Vector velocity) { this.velocity = velocity; }
+    @Override public boolean isCancelled() { return cancelled; }
+    @Override public void setCancelled(boolean cancel) { this.cancelled = cancel; }
+    @NotNull @Override public HandlerList getHandlers() { return handlers; }
+    public static HandlerList getHandlerList() { return handlers; }
+}
+```
+
+### MobManager.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * 生物管理器
+ * 实现：抛物线物理、动态音效、Folia 异步调度
+ */
+public class MobManager {
+    private final MobLaunch plugin;
+    private final Map<UUID, Entity> mountedMobs;
+    private final Map<UUID, ChargeTask> chargingPlayers;
+    private final NamespacedKey mobLaunchKey;
+    private final NamespacedKey noFallKey;
+
+    public MobManager(MobLaunch plugin) {
+        this.plugin = plugin;
+        this.mountedMobs = new HashMap<>();
+        this.chargingPlayers = new HashMap<>();
+        this.mobLaunchKey = new NamespacedKey(plugin, "MobLaunchMounted");
+        this.noFallKey = new NamespacedKey(plugin, "MobLaunchNoFall");
+    }
+
+    public NamespacedKey getNoFallKey() { return noFallKey; }
+
+    private void playSound(Player player, String configPath) {
+        playSound(player, configPath, -1);
+    }
+
+    private void playSound(Player player, String configPath, float overridePitch) {
+        ConfigManager.SoundConfig soundConfig = plugin.getConfigManager().getSound(configPath);
+        if (soundConfig.enabled && soundConfig.sound != null) {
+            float finalPitch = (overridePitch != -1) ? overridePitch : soundConfig.pitch;
+            player.playSound(player.getLocation(), soundConfig.sound, soundConfig.volume, finalPitch);
+        }
+    }
+
+    public boolean pickupMob(Player player, Entity entity) {
+        if (entity == null || !entity.isValid()) return false;
+        if (entity.getUniqueId().equals(player.getUniqueId())) return false;
+
+        if (player.isInsideVehicle()) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("pickup-failed-vehicle", "你必须离开载具"));
+            return false;
+        }
+        if (player.isGliding()) return false;
+        if (entity.isInsideVehicle()) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("pickup-failed-vehicle", "目标在载具内"));
+            return false;
+        }
+
+        if (!player.hasPermission("moblaunch.use")) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("no-permission-use"));
+            return false;
+        }
+
+        boolean hasWildcard = player.hasPermission("moblaunch.use.*");
+        boolean hasSpecific = player.hasPermission("moblaunch.use." + entity.getType().name().toLowerCase());
+        
+        if (!hasWildcard && !hasSpecific) {
+            boolean isAdmin = player.hasPermission("moblaunch.admin");
+            if (!isAdmin && !plugin.getConfigManager().isMobAllowed(entity.getType())) {
+                player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-allowed"));
+                return false;
+            }
+        }
+
+        if (!checkMobOwnership(player, entity)) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-owned"));
+            return false;
+        }
+
+        if (isPlayerHoldingMob(player)) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("already-holding-mob"));
+            return false;
+        }
+
+        if (isMobMounted(entity)) {
+            player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-already-mounted"));
+            return false;
+        }
+
+        MobPickupEvent event = new MobPickupEvent(player, entity);
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) return false;
+
+        Runnable mountLogic = () -> {
+            if (!player.isValid() || !entity.isValid()) return;
+            player.addPassenger(entity);
+            markMobAsMounted(entity);
+            mountedMobs.put(player.getUniqueId(), entity);
+            playSound(player, "pickup");
+            player.sendMessage(ChatColor.GREEN + plugin.getLanguageManager().getMessage("pickup-success", entity.getName()));
+        };
+
+        try {
+            entity.teleportAsync(player.getLocation()).thenAccept(success -> {
+                if (success) {
+                    try { entity.getScheduler().run(plugin, (task) -> mountLogic.run(), null); } catch (Throwable e) { mountLogic.run(); }
+                }
+            });
+        } catch (Throwable e) {
+            entity.teleport(player.getLocation());
+            mountLogic.run();
+        }
+        return true;
+    }
+
+    public boolean putdownMob(Player player) {
+        Entity entity = mountedMobs.get(player.getUniqueId());
+        if (entity == null || !entity.isValid()) {
+            mountedMobs.remove(player.getUniqueId());
+            return false;
+        }
+
+        unmarkMobAsMounted(entity);
+        if (player.isValid()) player.removePassenger(entity);
+        mountedMobs.remove(player.getUniqueId());
+
+        ChargeTask chargeTask = chargingPlayers.get(player.getUniqueId());
+        if (chargeTask != null) {
+            try { chargeTask.cancel(); } catch (Exception e) {}
+            chargingPlayers.remove(player.getUniqueId());
+        }
+
+        if (player.isValid()) {
+            playSound(player, "putdown");
+            player.sendMessage(ChatColor.GREEN + plugin.getLanguageManager().getMessage("putdown-success", entity.getName()));
+        }
+        return true;
+    }
+
+    public void startCharging(Player player) {
+        if (!isPlayerHoldingMob(player)) return;
+        ChargeTask existing = chargingPlayers.get(player.getUniqueId());
+        if (existing != null) {
+            try { existing.cancel(); } catch (Exception e) {}
+            chargingPlayers.remove(player.getUniqueId());
+        }
+
+        ChargeTask chargeTask = new ChargeTask(player);
+        int tickRate = plugin.getConfigManager().getChargeIncrementTicks();
+        
+        try {
+            player.getScheduler().runAtFixedRate(plugin, (t) -> chargeTask.run(), null, 1L, tickRate);
+            chargingPlayers.put(player.getUniqueId(), chargeTask);
+        } catch (Throwable e) {
+            chargeTask.runTaskTimer(plugin, 1L, tickRate);
+            chargeTask.markScheduled();
+            chargingPlayers.put(player.getUniqueId(), chargeTask);
+        }
+    }
+
+    public void stopChargingAndLaunch(Player player) {
+        ChargeTask task = chargingPlayers.get(player.getUniqueId());
+        if (task == null) return;
+        int percent = task.getChargePercent();
+        try { task.cancel(); } catch (Exception e) {}
+        chargingPlayers.remove(player.getUniqueId());
+
+        if (percent <= 0) {
+            putdownMob(player);
+            return;
+        }
+
+        Entity entity = mountedMobs.get(player.getUniqueId());
+        if (entity == null || !entity.isValid()) {
+            mountedMobs.remove(player.getUniqueId());
+            return;
+        }
+
+        ConfigManager cfg = plugin.getConfigManager();
+        double chargeRatio = percent / 100.0;
+        
+        // 物理计算：抛物线向量
+        Vector lookDir = player.getLocation().getDirection();
+        double speed = cfg.getVelocityMultiplier() * chargeRatio;
+        Vector velocity = lookDir.multiply(speed);
+        velocity.add(new Vector(0, cfg.getVerticalBias() * chargeRatio, 0));
+
+        MobLaunchEvent event = new MobLaunchEvent(player, entity, velocity);
+        Bukkit.getPluginManager().callEvent(event);
+
+        if (event.isCancelled()) {
+            putdownMob(player);
+            return;
+        }
+
+        unmarkMobAsMounted(entity);
+        if (player.isValid()) player.removePassenger(entity);
+        mountedMobs.remove(player.getUniqueId());
+
+        Runnable launch = () -> {
+            if (entity.isValid()) {
+                if (cfg.isDisableFallDamage()) {
+                    entity.getPersistentDataContainer().set(noFallKey, PersistentDataType.BYTE, (byte) 1);
+                }
+                entity.setVelocity(event.getVelocity());
+                playSound(player, "launch");
+            }
+        };
+
+        try { entity.getScheduler().runDelayed(plugin, (t) -> launch.run(), null, 1L); }
+        catch (Throwable e) { Bukkit.getScheduler().runTaskLater(plugin, launch, 1L); }
+
+        if (player.isValid()) {
+            player.sendMessage(ChatColor.GREEN + plugin.getLanguageManager().getMessage("launch-message", percent, entity.getName()));
+        }
+    }
+
+    public boolean isPlayerHoldingMob(Player player) {
+        Entity e = mountedMobs.get(player.getUniqueId());
+        if (e == null) return false;
+        if (!e.isValid()) {
+            mountedMobs.remove(player.getUniqueId());
+            return false;
+        }
+        return player.getPassengers().contains(e);
+    }
+
+    public boolean isMobMounted(Entity entity) {
+        if (entity == null || !entity.isValid()) return false;
+        boolean isMarked = entity.getPersistentDataContainer().has(mobLaunchKey, PersistentDataType.BYTE);
+        if (!isMarked) return false;
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.getPassengers().contains(entity)) return true;
+        }
+        unmarkMobAsMounted(entity);
+        cleanupMountedMobsMap(entity);
+        return false;
+    }
+
+    private void cleanupMountedMobsMap(Entity entity) {
+        UUID pid = null;
+        for (Map.Entry<UUID, Entity> en : mountedMobs.entrySet()) {
+            if (en.getValue().equals(entity)) {
+                pid = en.getKey();
+                break;
+            }
+        }
+        if (pid != null) {
+            mountedMobs.remove(pid);
+            ChargeTask t = chargingPlayers.get(pid);
+            if (t != null) { try { t.cancel(); } catch (Exception e) {} chargingPlayers.remove(pid); }
+        }
+    }
+
+    private void markMobAsMounted(Entity e) { e.getPersistentDataContainer().set(mobLaunchKey, PersistentDataType.BYTE, (byte) 1); }
+    private void unmarkMobAsMounted(Entity e) { e.getPersistentDataContainer().remove(mobLaunchKey); }
+
+    public void removeAllMountedMobs() {
+        for (Map.Entry<UUID, Entity> en : mountedMobs.entrySet()) {
+            Player p = Bukkit.getPlayer(en.getKey());
+            Entity e = en.getValue();
+            if (p != null && p.isOnline() && e != null && e.isValid()) p.removePassenger(e);
+            if (e != null && e.isValid()) unmarkMobAsMounted(e);
+        }
+    }
+
+    private boolean checkMobOwnership(Player p, Entity e) {
+        if (e.getCustomName() == null) return true;
+        NamespacedKey k = new NamespacedKey(plugin, "MobLaunchOwner");
+        if (e.getPersistentDataContainer().has(k, PersistentDataType.STRING)) {
+            String uuid = e.getPersistentDataContainer().get(k, PersistentDataType.STRING);
+            if (!p.getUniqueId().toString().equals(uuid) && !p.hasPermission("moblaunch.admin")) return false;
+        }
+        return true;
+    }
+
+    public void setMobOwner(Entity e, Player p) {
+        e.getPersistentDataContainer().set(new NamespacedKey(plugin, "MobLaunchOwner"), PersistentDataType.STRING, p.getUniqueId().toString());
+    }
+
+    private class ChargeTask extends BukkitRunnable {
+        private final Player player;
+        private int chargePercent = 0;
+        private boolean isCancelled = false;
+        private boolean isScheduled = false;
+        private enum State { INCREASING, MAX_PAUSE, DECREASING, ZERO_PAUSE }
+        private State currentState = State.INCREASING;
+        private int pauseTicks = 0;
+        private final ConfigManager cfg;
+
+        public ChargeTask(Player p) { 
+            this.player = p; 
+            this.cfg = plugin.getConfigManager();
+        }
+
+        @Override
+        public void run() {
+            if (isCancelled || !isPlayerHoldingMob(player)) { cancel(); return; }
+            int step = cfg.getChargeStep();
+
+            switch (currentState) {
+                case INCREASING:
+                    chargePercent += step;
+                    if (chargePercent >= 100) {
+                        chargePercent = 100; 
+                        currentState = State.MAX_PAUSE; 
+                        pauseTicks = 0;
+                        playSound(player, "max-charge");
+                    } else {
+                        if (chargePercent % (step * 2) == 0) { 
+                            ConfigManager.SoundConfig sc = cfg.getSound("charging");
+                            if (sc.enabled) {
+                                float dynPitch = sc.pitch + (chargePercent / 100.0f);
+                                playSound(player, "charging", dynPitch);
+                            }
+                        }
+                    }
+                    break;
+                case MAX_PAUSE:
+                    pauseTicks++;
+                    if (pauseTicks >= cfg.getPauseAtMaxTicks()) currentState = State.DECREASING;
+                    break;
+                case DECREASING:
+                    chargePercent -= step;
+                    if (chargePercent <= 0) {
+                        chargePercent = 0; 
+                        currentState = State.ZERO_PAUSE; 
+                        pauseTicks = 0;
+                        playSound(player, "zero-charge");
+                    } else {
+                        if (chargePercent % (step * 2) == 0) {
+                            ConfigManager.SoundConfig sc = cfg.getSound("decreasing");
+                            if (sc.enabled) {
+                                // 音调随进度降低
+                                float dynPitch = sc.pitch + (chargePercent / 100.0f);
+                                playSound(player, "decreasing", dynPitch);
+                            }
+                        }
+                    }
+                    break;
+                case ZERO_PAUSE:
+                    pauseTicks++;
+                    if (pauseTicks >= cfg.getPauseAtZeroTicks()) currentState = State.INCREASING;
+                    break;
+            }
+            if (cfg.isEnableActionBar()) displayBar(player, chargePercent);
+        }
+
+        public int getChargePercent() { return chargePercent; }
+        @Override public synchronized void cancel() { isCancelled = true; if (isScheduled) try { super.cancel(); } catch (Exception e) {} }
+        public void markScheduled() { isScheduled = true; }
+        
+        private void displayBar(Player p, int pct) {
+            if (currentState == State.ZERO_PAUSE) { 
+                p.sendActionBar(ChatColor.GRAY + "[ " + ChatColor.YELLOW + "松开潜行放下生物" + ChatColor.GRAY + " ]"); 
+                return; 
+            }
+            int len = cfg.getBarLength();
+            int filled = (int) (len * (pct / 100.0));
+            
+            StringBuilder sb = new StringBuilder();
+            String color = cfg.getColorCharging();
+            if (currentState == State.MAX_PAUSE) color = cfg.getColorFull();
+            else if (currentState == State.DECREASING) color = cfg.getColorDecreasing();
+
+            sb.append(ChatColor.translateAlternateColorCodes('&', color));
+            String ch = cfg.getBarChar();
+            for (int i=0; i<filled; i++) sb.append(ch);
+            sb.append(ChatColor.WHITE);
+            for (int i=filled; i<len; i++) sb.append(ch);
+            p.sendActionBar(sb.toString());
+        }
+    }
+}
+```
+
+### MobPickupEvent.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
+import org.bukkit.event.Event;
+import org.bukkit.event.HandlerList;
+import org.jetbrains.annotations.NotNull;
+
+public class MobPickupEvent extends Event implements Cancellable {
+    private static final HandlerList handlers = new HandlerList();
+    private boolean cancelled = false;
+    private final Player player;
+    private final Entity entity;
+
+    public MobPickupEvent(Player player, Entity entity) {
+        this.player = player;
+        this.entity = entity;
+    }
+    public Player getPlayer() { return player; }
+    public Entity getEntity() { return entity; }
+    @Override public boolean isCancelled() { return cancelled; }
+    @Override public void setCancelled(boolean cancel) { this.cancelled = cancel; }
+    @NotNull @Override public HandlerList getHandlers() { return handlers; }
+    public static HandlerList getHandlerList() { return handlers; }
+}
+```
+
+### PlayerListener.java
+```java
+package com.moblaunch.plugin;
+
+import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
+import org.bukkit.Material;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerToggleSneakEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
+
+/**
+ * 玩家事件监听
+ * 处理交互、死亡、传送等安全逻辑
+ */
+public class PlayerListener implements Listener {
+    private final MobLaunch plugin;
+
+    public PlayerListener(MobLaunch plugin) {
+        this.plugin = plugin;
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (event.isCancelled()) return;
+
+        Player player = event.getPlayer();
+        Entity entity = event.getRightClicked();
+
+        ItemStack mainHandItem = player.getInventory().getItemInMainHand();
+        if (mainHandItem.getType() == Material.NAME_TAG && mainHandItem.hasItemMeta()) {
+            ItemMeta itemMeta = mainHandItem.getItemMeta();
+            if (itemMeta.hasDisplayName()) {
+                plugin.getMobManager().setMobOwner(entity, player);
+                player.sendMessage(ChatColor.GREEN + "已绑定生物所有权: " + itemMeta.getDisplayName());
+                
+                // 创造模式消耗检查
+                boolean consume = plugin.getConfigManager().isConsumeNametagCreative();
+                if (player.getGameMode() != GameMode.CREATIVE || consume) {
+                    mainHandItem.subtract(1);
+                }
+                return;
+            }
+        }
+
+        if (player.isSneaking()) {
+            if (!isHandsEmpty(player)) return;
+            if (plugin.getMobManager().isPlayerHoldingMob(player)) {
+                player.sendMessage("§c" + plugin.getLanguageManager().getMessage("already-holding-mob"));
+                event.setCancelled(true);
+                return;
+            }
+            if (plugin.getMobManager().pickupMob(player, entity)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (event.getCause() != EntityDamageEvent.DamageCause.FALL) return;
+        Entity entity = event.getEntity();
+        if (entity.getPersistentDataContainer().has(plugin.getMobManager().getNoFallKey(), PersistentDataType.BYTE)) {
+            event.setCancelled(true);
+            entity.getPersistentDataContainer().remove(plugin.getMobManager().getNoFallKey());
+        }
+    }
+
+    private boolean isHandsEmpty(Player player) {
+        ItemStack mainHand = player.getInventory().getItemInMainHand();
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        return (mainHand == null || mainHand.getType() == Material.AIR) &&
+                (offHand == null || offHand.getType() == Material.AIR);
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onPlayerInteractWithHeldEntity(PlayerInteractEntityEvent event) {
+        Player player = event.getPlayer();
+        if (plugin.getMobManager().isPlayerHoldingMob(player) && player.getPassengers().contains(event.getRightClicked())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerDamageHeldEntity(EntityDamageByEntityEvent event) {
+        if (event.isCancelled()) return;
+        if (event.getDamager() instanceof Player) {
+            Player player = (Player) event.getDamager();
+            if (plugin.getMobManager().isPlayerHoldingMob(player) && player.getPassengers().contains(event.getEntity())) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onPlayerToggleSneak(PlayerToggleSneakEvent event) {
+        Player player = event.getPlayer();
+        if (!plugin.getMobManager().isPlayerHoldingMob(player)) return;
+        if (event.isSneaking()) {
+            if (!isHandsEmpty(player)) return;
+            plugin.getMobManager().startCharging(player);
+        } else {
+            plugin.getMobManager().stopChargingAndLaunch(player);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        if (plugin.getMobManager().isPlayerHoldingMob(player)) plugin.getMobManager().putdownMob(player);
+    }
+
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        // 强制执行放下逻辑，防止 Bug
+        Player player = event.getEntity();
+        if (plugin.getMobManager().isPlayerHoldingMob(player)) plugin.getMobManager().putdownMob(player);
+    }
+
+    @EventHandler
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        // 传送时强制放下，防止与原版机制冲突
+        if (event.getFrom().getWorld() != event.getTo().getWorld()) {
+            Player player = event.getPlayer();
+            if (plugin.getMobManager().isPlayerHoldingMob(player)) plugin.getMobManager().putdownMob(player);
+        }
+    }
+}
+```
+
+---
+
+## 资源文件
+
+### config.yml
+```yaml
+# =============================================================
+#                 MobLaunch 核心配置文件
+# =============================================================
+
+allowed-mobs:
+- ALLAY
+- AXOLOTL
+- CAT
+- CHICKEN
+- COW
+- FOX
+- FROG
+- GOAT
+- HORSE
+- PIG
+- PANDA
+- PARROT
+- POLAR_BEAR
+- RABBIT
+- SHEEP
+- SNOW_GOLEM
+- VILLAGER
+- WOLF
+- OCELOT
+
+message-prefix: "&6[MobLaunch] "
+
+# 物理参数
+launch:
+  velocity-multiplier: 1.8
+  vertical-bias: 0.3
+
+# 保护与机制
+protection:
+  disable-fall-damage: true
+  consume-nametag-creative: false
+
+# 蓄力设置
+charge:
+  step-percentage: 5
+  increment-ticks: 1
+  pause-at-max-ticks: 15
+  pause-at-zero-ticks: 15
+
+# 视觉效果
+visuals:
+  enable-action-bar: true
+  bar-char: "|"
+  bar-length: 40
+  color-charging: "&a"
+  color-full: "&6"
+  color-decreasing: "&c"
+
+# 音效配置
+sounds:
+  pickup:
+    sound: ITEM_ARMOR_EQUIP_LEATHER
+    volume: 1.0
+    pitch: 1.0
+    enabled: true
+  putdown:
+    sound: ITEM_ARMOR_EQUIP_LEATHER
+    volume: 1.0
+    pitch: 0.8
+    enabled: true
+  charging:
+    sound: BLOCK_NOTE_BLOCK_PLING
+    volume: 0.3
+    pitch: 0.5
+    enabled: true
+  decreasing:
+    sound: BLOCK_NOTE_BLOCK_PLING
+    volume: 0.3
+    pitch: 0.5
+    enabled: true
+  max-charge:
+    sound: BLOCK_NOTE_BLOCK_CHIME
+    volume: 0.5
+    pitch: 1.5
+    enabled: true
+  zero-charge:
+    sound: BLOCK_NOTE_BLOCK_BASS
+    volume: 0.5
+    pitch: 0.5
+    enabled: true
+  launch:
+    sound: ENTITY_EGG_THROW
+    volume: 1.0
+    pitch: 0.8
+    enabled: true
+
+messages:
+  no-permission-use: true
+  no-permission-admin: true
+  mob-not-allowed: true
+  already-holding-mob: true
+  mob-already-mounted: true
+  pickup-success: true
+  putdown-success: true
+  launch-message: true
+```
+
+### lang.yml
+```yaml
+# MobLaunch 语言文件
+no-permission-use: "&c你没有权限抱起生物。"
+no-permission-admin: "&c你没有权限使用此命令。"
+mob-not-allowed: "&c不允许抱起这种生物。"
+already-holding-mob: "&c你已经抱起了一个生物！"
+mob-already-mounted: "&c这个生物已经被抱起了。"
+mob-not-owned: "&c这个生物属于其他人，你不能抱起它。"
+pickup-success: "&a你抱起了 &e{0}&a。"
+putdown-success: "&a你放下了 &e{0}&a。"
+launch-message: "&a你以 &e{0}% &a的力量抛出了 &e{1}&a！"
+pickup-failed-vehicle: "&c无法抱起: {0}"
+command-help-title: "&6--- MobLaunch 帮助 ---"
+command-help-version: "&e/moblaunch version &7- 查看插件版本"
+command-help-reload: "&e/moblaunch reload &7- 重载配置文件"
+command-version-title: "&6--- MobLaunch 信息 ---"
+command-version-version: "&7版本: &e{version}"
+command-version-author: "&7作者: &e{author}"
+command-version-description: "&7轻量级生物投掷插件"
+command-reload-success: "&a配置文件已成功重载！"
+command-reload-failed: "&c重载失败: {0}"
+```
+
+### plugin.yml
+```yaml
+name: MobLaunch
+version: 1.5.0
+main: com.moblaunch.plugin.MobLaunch
+api-version: 1.20
+author: ZXBHELLO, ZKANA
+description: 抱起并投掷实体的插件 - 物理修复与自定义音效版
+folia-supported: true
+softdepend:
+- WorldGuard
+- Residence
+- Towny
+- Lands
+- Dominion
+- GriefPrevention
+- PlotSquared
+commands:
+  moblaunch:
+    description: MobLaunch 主命令
+    usage: /<command> [version|reload]
+    permission: moblaunch.admin
+    aliases: [ ml ]
+permissions:
+  moblaunch.use:
+    default: true
+  moblaunch.use.*:
+    default: op
+  moblaunch.admin:
+    default: op
+```
+
+---
+
+## Maven 配置文件
+
+### pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.moblaunch</groupId>
+    <artifactId>MobLaunch</artifactId>
+    <version>1.5.0</version>
+    <packaging>jar</packaging>
+
+    <name>MobLaunch</name>
+    <description>抱起并投掷生物的插件</description>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.papermc.paper</groupId>
+            <artifactId>paper-api</artifactId>
+            <version>1.20.1-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <defaultGoal>clean package</defaultGoal>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+    </build>
+</project>
+```
+
+### settings.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <mirrors>
+        <mirror>
+            <id>aliyunmaven</id>
+            <mirrorOf>*</mirrorOf>
+            <name>阿里云公共仓库</name>
+            <url>https://maven.aliyun.com/repository/public</url>
+        </mirror>
+    </mirrors>
+
+    <profiles>
+        <profile>
+            <id>aliyun</id>
+            <repositories>
+                <repository>
+                    <id>aliyunmaven</id>
+                    <url>https://maven.aliyun.com/repository/public</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
+
+    <activeProfiles>
+        <activeProfile>aliyun</activeProfile>
+    </activeProfiles>
+</settings>
+```
+
+---
+
+## 项目说明文档
+
+### README.md
+```markdown
+# MobLaunch v1.5.0
+
+> 专为 Folia、Paper 和 Spigot 设计的高性能实体投掷插件。具有完美的抛物线物理效果和高度可自定义的音效系统。
+
+![Platform](https://img.shields.io/badge/Platform-Folia%20%7C%20Paper%20%7C%20Spigot-blue)
+
+## v1.5.0 更新亮点
+1.  **物理重构**：修复了投掷轨迹，现在生物会沿着准星方向呈自然抛物线飞出。
+2.  **音效增强**：
+    *   抱起/放下使用皮革装备声，更具沉浸感。
+    *   蓄力增加动态音效（上升调），减少力度时有动态下降调。
+3.  **安全加固**：强制玩家死亡或跨界传送时放下生物，杜绝逻辑残留。
+4.  **配置增强**：配置文件全面升级，支持详细的物理参数和开关。
+
+## 操作指南
+1.  **抱起**：空手（主副手均空）+ 潜行 + 右键生物。
+2.  **蓄力**：保持潜行。ActionBar 显示进度条，音效随力度变化。
+3.  **投掷**：松开潜行。
+4.  **放下**：等待蓄力条归零变红后松开潜行。
+5.  **所有权**：使用命名牌右键生物可绑定。
+
+## 权限与命令
+*   `/moblaunch reload` - 重载配置
+*   权限：`moblaunch.use` (使用), `moblaunch.admin` (管理)
+
+---
+> 祝游戏愉快！
+```

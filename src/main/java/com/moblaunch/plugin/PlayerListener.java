@@ -1,5 +1,7 @@
 package com.moblaunch.plugin;
 
+import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -7,16 +9,17 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
-/**
- * Player event listener
- */
 public class PlayerListener implements Listener {
     private final MobLaunch plugin;
 
@@ -24,63 +27,57 @@ public class PlayerListener implements Listener {
         this.plugin = plugin;
     }
 
-    /**
-     * 处理玩家右键点击实体（抱起逻辑）
-     * 
-     * 兼容性更新：
-     * 1. EventPriority.HIGH: 让我们在领地插件之后运行
-     * 2. ignoreCancelled = true: 如果领地插件取消了事件，我们也忽略它
-     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
-        // 双手必须为空且是主手交互
-        if (event.getHand() != EquipmentSlot.HAND) {
+        if (event.getHand() != EquipmentSlot.HAND)
             return;
-        }
-
-        // --- 再次检查取消状态 (双重保险) ---
-        // 如果 Residence/Towny/WorldGuard 判定玩家无权交互，它们会将事件设为 Cancelled
-        // 此时我们直接返回，不再执行抱起，这就实现了完美兼容。
-        if (event.isCancelled()) {
+        if (event.isCancelled())
             return;
-        }
 
         Player player = event.getPlayer();
         Entity entity = event.getRightClicked();
 
-        // 1. 命名牌逻辑 (优先处理)
         ItemStack mainHandItem = player.getInventory().getItemInMainHand();
         if (mainHandItem.getType() == Material.NAME_TAG && mainHandItem.hasItemMeta()) {
             ItemMeta itemMeta = mainHandItem.getItemMeta();
             if (itemMeta.hasDisplayName()) {
                 plugin.getMobManager().setMobOwner(entity, player);
+                player.sendMessage(ChatColor.GREEN + "已绑定生物所有权: " + itemMeta.getDisplayName());
+
+                // 检查配置：创造模式是否消耗
+                boolean consumeInCreative = plugin.getConfigManager().isConsumeNametagCreative();
+                if (player.getGameMode() != GameMode.CREATIVE || consumeInCreative) {
+                    mainHandItem.subtract(1);
+                }
                 return;
             }
         }
 
-        // 2. 抱起逻辑
         if (player.isSneaking()) {
-            if (!isHandsEmpty(player)) {
+            if (!isHandsEmpty(player))
                 return;
-            }
-
             if (plugin.getMobManager().isPlayerHoldingMob(player)) {
                 player.sendMessage("§c" + plugin.getLanguageManager().getMessage("already-holding-mob"));
                 event.setCancelled(true);
                 return;
             }
-
-            // 执行抱起
             if (plugin.getMobManager().pickupMob(player, entity)) {
-                // 只有在成功抱起后，才取消原版交互
                 event.setCancelled(true);
             }
         }
     }
 
-    /**
-     * 辅助方法：检查双手是否为空
-     */
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (event.getCause() != EntityDamageEvent.DamageCause.FALL)
+            return;
+        Entity entity = event.getEntity();
+        if (entity.getPersistentDataContainer().has(plugin.getMobManager().getNoFallKey(), PersistentDataType.BYTE)) {
+            event.setCancelled(true);
+            entity.getPersistentDataContainer().remove(plugin.getMobManager().getNoFallKey());
+        }
+    }
+
     private boolean isHandsEmpty(Player player) {
         ItemStack mainHand = player.getInventory().getItemInMainHand();
         ItemStack offHand = player.getInventory().getItemInOffHand();
@@ -88,58 +85,36 @@ public class PlayerListener implements Listener {
                 (offHand == null || offHand.getType() == Material.AIR);
     }
 
-    /**
-     * 防止与已抱起的生物交互
-     */
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onPlayerInteractWithHeldEntity(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();
-        Entity entity = event.getRightClicked();
-
-        if (plugin.getMobManager().isPlayerHoldingMob(player) &&
-                player.getPassengers().contains(entity)) {
+        if (plugin.getMobManager().isPlayerHoldingMob(player)
+                && player.getPassengers().contains(event.getRightClicked())) {
             event.setCancelled(true);
         }
     }
 
-    /**
-     * 防止伤害已抱起的生物
-     * 同样添加兼容性支持
-     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerDamageHeldEntity(EntityDamageByEntityEvent event) {
-        // 如果 WorldGuard 禁止了 PVP/PVE，这里会自动跳过
-        if (event.isCancelled()) {
+        if (event.isCancelled())
             return;
-        }
-
         if (event.getDamager() instanceof Player) {
             Player player = (Player) event.getDamager();
-            Entity entity = event.getEntity();
-
-            if (plugin.getMobManager().isPlayerHoldingMob(player) &&
-                    player.getPassengers().contains(entity)) {
+            if (plugin.getMobManager().isPlayerHoldingMob(player)
+                    && player.getPassengers().contains(event.getEntity())) {
                 event.setCancelled(true);
             }
         }
     }
 
-    /**
-     * 潜行状态切换 (蓄力控制)
-     * 这个事件通常不受领地插件控制，保持原样即可
-     */
     @EventHandler
     public void onPlayerToggleSneak(PlayerToggleSneakEvent event) {
         Player player = event.getPlayer();
-
-        if (!plugin.getMobManager().isPlayerHoldingMob(player)) {
+        if (!plugin.getMobManager().isPlayerHoldingMob(player))
             return;
-        }
-
         if (event.isSneaking()) {
-            if (!isHandsEmpty(player)) {
+            if (!isHandsEmpty(player))
                 return;
-            }
             plugin.getMobManager().startCharging(player);
         } else {
             plugin.getMobManager().stopChargingAndLaunch(player);
@@ -151,6 +126,26 @@ public class PlayerListener implements Listener {
         Player player = event.getPlayer();
         if (plugin.getMobManager().isPlayerHoldingMob(player)) {
             plugin.getMobManager().putdownMob(player);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        // 强制执行放下逻辑，清理插件内部状态
+        Player player = event.getEntity();
+        if (plugin.getMobManager().isPlayerHoldingMob(player)) {
+            plugin.getMobManager().putdownMob(player);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        // 传送时强制放下，防止Bug
+        if (event.getFrom().getWorld() != event.getTo().getWorld()) {
+            Player player = event.getPlayer();
+            if (plugin.getMobManager().isPlayerHoldingMob(player)) {
+                plugin.getMobManager().putdownMob(player);
+            }
         }
     }
 }

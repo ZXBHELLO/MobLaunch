@@ -13,22 +13,41 @@ import org.bukkit.util.Vector;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
- * 生物管理器，处理生物的抱起和抛出逻辑
+ * 生物管理器
+ * 更新：增加减少进度时的动态音效
  */
 public class MobManager {
     private final MobLaunch plugin;
     private final Map<UUID, Entity> mountedMobs;
     private final Map<UUID, ChargeTask> chargingPlayers;
     private final NamespacedKey mobLaunchKey;
+    private final NamespacedKey noFallKey;
 
     public MobManager(MobLaunch plugin) {
         this.plugin = plugin;
         this.mountedMobs = new HashMap<>();
         this.chargingPlayers = new HashMap<>();
         this.mobLaunchKey = new NamespacedKey(plugin, "MobLaunchMounted");
+        this.noFallKey = new NamespacedKey(plugin, "MobLaunchNoFall");
+    }
+
+    public NamespacedKey getNoFallKey() {
+        return noFallKey;
+    }
+
+    // --- 播放音效辅助方法 ---
+    private void playSound(Player player, String configPath) {
+        playSound(player, configPath, -1);
+    }
+
+    private void playSound(Player player, String configPath, float overridePitch) {
+        ConfigManager.SoundConfig soundConfig = plugin.getConfigManager().getSound(configPath);
+        if (soundConfig.enabled && soundConfig.sound != null) {
+            float finalPitch = (overridePitch != -1) ? overridePitch : soundConfig.pitch;
+            player.playSound(player.getLocation(), soundConfig.sound, soundConfig.volume, finalPitch);
+        }
     }
 
     // --- 抱起逻辑 (Pickup) ---
@@ -38,16 +57,28 @@ public class MobManager {
         if (entity.getUniqueId().equals(player.getUniqueId()))
             return false;
 
+        if (player.isInsideVehicle()) {
+            player.sendMessage(
+                    ChatColor.RED + plugin.getLanguageManager().getMessage("pickup-failed-vehicle", "你必须离开载具"));
+            return false;
+        }
+        if (player.isGliding())
+            return false;
+        if (entity.isInsideVehicle()) {
+            player.sendMessage(
+                    ChatColor.RED + plugin.getLanguageManager().getMessage("pickup-failed-vehicle", "目标在载具内"));
+            return false;
+        }
+
         if (!player.hasPermission("moblaunch.use")) {
             player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("no-permission-use"));
             return false;
         }
 
-        boolean hasWildcardPermission = player.hasPermission("moblaunch.use.*");
-        String entityTypeName = entity.getType().name().toLowerCase();
-        boolean hasSpecificPermission = player.hasPermission("moblaunch.use." + entityTypeName);
+        boolean hasWildcard = player.hasPermission("moblaunch.use.*");
+        boolean hasSpecific = player.hasPermission("moblaunch.use." + entity.getType().name().toLowerCase());
 
-        if (!hasWildcardPermission && !hasSpecificPermission) {
+        if (!hasWildcard && !hasSpecific) {
             boolean isAdmin = player.hasPermission("moblaunch.admin");
             if (!isAdmin && !plugin.getConfigManager().isMobAllowed(entity.getType())) {
                 player.sendMessage(ChatColor.RED + plugin.getLanguageManager().getMessage("mob-not-allowed"));
@@ -70,23 +101,21 @@ public class MobManager {
             return false;
         }
 
-        // --- API 事件触发 ---
         MobPickupEvent event = new MobPickupEvent(player, entity);
         Bukkit.getPluginManager().callEvent(event);
-
-        if (event.isCancelled()) {
+        if (event.isCancelled())
             return false;
-        }
-        // ------------------
 
         Runnable mountLogic = () -> {
             if (!player.isValid() || !entity.isValid())
                 return;
 
             player.addPassenger(entity);
-
             markMobAsMounted(entity);
             mountedMobs.put(player.getUniqueId(), entity);
+
+            playSound(player, "pickup");
+
             player.sendMessage(
                     ChatColor.GREEN + plugin.getLanguageManager().getMessage("pickup-success", entity.getName()));
         };
@@ -102,13 +131,8 @@ public class MobManager {
                 }
             });
         } catch (Throwable e) {
-            try {
-                entity.teleport(player.getLocation());
-                mountLogic.run();
-            } catch (Exception ex) {
-                plugin.getLogger().warning("抱起生物失败: " + ex.getMessage());
-                return false;
-            }
+            entity.teleport(player.getLocation());
+            mountLogic.run();
         }
 
         return true;
@@ -123,11 +147,8 @@ public class MobManager {
         }
 
         unmarkMobAsMounted(entity);
-
-        if (player.isValid()) {
+        if (player.isValid())
             player.removePassenger(entity);
-        }
-
         mountedMobs.remove(player.getUniqueId());
 
         ChargeTask chargeTask = chargingPlayers.get(player.getUniqueId());
@@ -139,66 +160,54 @@ public class MobManager {
             chargingPlayers.remove(player.getUniqueId());
         }
 
-        player.sendMessage(
-                ChatColor.GREEN + plugin.getLanguageManager().getMessage("putdown-success", entity.getName()));
+        if (player.isValid()) {
+            playSound(player, "putdown");
+            player.sendMessage(
+                    ChatColor.GREEN + plugin.getLanguageManager().getMessage("putdown-success", entity.getName()));
+        }
         return true;
     }
 
-    // --- 开始蓄力 (Start Charging) ---
+    // --- 蓄力与投掷 ---
     public void startCharging(Player player) {
-        if (!isPlayerHoldingMob(player)) {
+        if (!isPlayerHoldingMob(player))
             return;
-        }
 
-        ChargeTask existingTask = chargingPlayers.get(player.getUniqueId());
-        if (existingTask != null) {
+        ChargeTask existing = chargingPlayers.get(player.getUniqueId());
+        if (existing != null) {
             try {
-                existingTask.cancel();
+                existing.cancel();
             } catch (Exception e) {
             }
             chargingPlayers.remove(player.getUniqueId());
         }
 
         ChargeTask chargeTask = new ChargeTask(player);
+        int tickRate = plugin.getConfigManager().getChargeIncrementTicks();
 
         try {
-            Object task = player.getScheduler().runAtFixedRate(plugin, (scheduledTask) -> {
-                chargeTask.run();
-            }, null, 1L, plugin.getConfigManager().getChargeIncrementTicks());
+            player.getScheduler().runAtFixedRate(plugin, (t) -> chargeTask.run(), null, 1L, tickRate);
             chargingPlayers.put(player.getUniqueId(), chargeTask);
         } catch (Throwable e) {
-            try {
-                chargeTask.runTaskTimer(plugin, 1L, plugin.getConfigManager().getChargeIncrementTicks());
-                chargeTask.markScheduled();
-                chargingPlayers.put(player.getUniqueId(), chargeTask);
-            } catch (Exception ex) {
-                plugin.getLogger().severe("无法启动蓄力任务: " + ex.getMessage());
-            }
+            chargeTask.runTaskTimer(plugin, 1L, tickRate);
+            chargeTask.markScheduled();
+            chargingPlayers.put(player.getUniqueId(), chargeTask);
         }
     }
 
-    // --- 停止蓄力并执行动作 (Stop & Launch/Drop) ---
     public void stopChargingAndLaunch(Player player) {
-        ChargeTask chargeTask = chargingPlayers.get(player.getUniqueId());
-        if (chargeTask == null) {
+        ChargeTask task = chargingPlayers.get(player.getUniqueId());
+        if (task == null)
             return;
-        }
 
-        int chargePercent = chargeTask.getChargePercent();
-
-        if (chargeTask.isScheduled()) {
-            try {
-                chargeTask.cancel();
-            } catch (Throwable e) {
-                try {
-                    chargeTask.cancel();
-                } catch (Exception ex) {
-                }
-            }
+        int percent = task.getChargePercent();
+        try {
+            task.cancel();
+        } catch (Exception e) {
         }
         chargingPlayers.remove(player.getUniqueId());
 
-        if (chargePercent <= 0) {
+        if (percent <= 0) {
             putdownMob(player);
             return;
         }
@@ -209,71 +218,72 @@ public class MobManager {
             return;
         }
 
-        Vector direction = player.getLocation().getDirection();
-        double maxVelocity = plugin.getConfigManager().getMaxVelocity();
-        double velocity = maxVelocity * (chargePercent / 100.0);
-        Vector launchVelocity = direction.multiply(velocity);
+        ConfigManager cfg = plugin.getConfigManager();
+        double chargeRatio = percent / 100.0;
 
-        // --- API 事件触发 ---
-        MobLaunchEvent event = new MobLaunchEvent(player, entity, launchVelocity);
+        // 物理计算
+        Vector lookDir = player.getLocation().getDirection();
+        double speed = cfg.getVelocityMultiplier() * chargeRatio;
+        Vector velocity = lookDir.multiply(speed);
+        velocity.add(new Vector(0, cfg.getVerticalBias() * chargeRatio, 0));
+
+        MobLaunchEvent event = new MobLaunchEvent(player, entity, velocity);
         Bukkit.getPluginManager().callEvent(event);
 
         if (event.isCancelled()) {
             putdownMob(player);
             return;
         }
-        final Vector finalVelocity = event.getVelocity();
-        // ------------------
 
         unmarkMobAsMounted(entity);
-        if (player.isValid()) {
+        if (player.isValid())
             player.removePassenger(entity);
-        }
-
         mountedMobs.remove(player.getUniqueId());
 
-        Runnable launchRunnable = () -> {
+        Runnable launch = () -> {
             if (entity.isValid()) {
-                entity.setVelocity(finalVelocity);
+                if (cfg.isDisableFallDamage()) {
+                    entity.getPersistentDataContainer().set(noFallKey, PersistentDataType.BYTE, (byte) 1);
+                }
+
+                entity.setVelocity(event.getVelocity());
+                playSound(player, "launch");
             }
         };
 
         try {
-            entity.getScheduler().runDelayed(plugin, (task) -> launchRunnable.run(), null, 1L);
+            entity.getScheduler().runDelayed(plugin, (t) -> launch.run(), null, 1L);
         } catch (Throwable e) {
-            Bukkit.getScheduler().runTaskLater(plugin, launchRunnable, 1L);
+            Bukkit.getScheduler().runTaskLater(plugin, launch, 1L);
         }
 
         if (player.isValid()) {
             player.sendMessage(ChatColor.GREEN
-                    + plugin.getLanguageManager().getMessage("launch-message", chargePercent, entity.getName()));
+                    + plugin.getLanguageManager().getMessage("launch-message", percent, entity.getName()));
         }
     }
 
     // --- 辅助方法 ---
-
     public boolean isPlayerHoldingMob(Player player) {
-        Entity entity = mountedMobs.get(player.getUniqueId());
-        if (entity == null)
+        Entity e = mountedMobs.get(player.getUniqueId());
+        if (e == null)
             return false;
-        if (!entity.isValid()) {
+        if (!e.isValid()) {
             mountedMobs.remove(player.getUniqueId());
             return false;
         }
-        return player.getPassengers().contains(entity);
+        return player.getPassengers().contains(e);
     }
 
     public boolean isMobMounted(Entity entity) {
         if (entity == null || !entity.isValid())
             return false;
-        PersistentDataContainer container = entity.getPersistentDataContainer();
-        boolean isMarked = container.has(mobLaunchKey, PersistentDataType.BYTE);
+        boolean isMarked = entity.getPersistentDataContainer().has(mobLaunchKey, PersistentDataType.BYTE);
         if (!isMarked)
             return false;
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getPassengers().contains(entity)) {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.getPassengers().contains(entity))
                 return true;
-            }
         }
         unmarkMobAsMounted(entity);
         cleanupMountedMobsMap(entity);
@@ -281,137 +291,144 @@ public class MobManager {
     }
 
     private void cleanupMountedMobsMap(Entity entity) {
-        UUID playerUUID = null;
-        for (Map.Entry<UUID, Entity> entry : mountedMobs.entrySet()) {
-            if (entry.getValue().equals(entity)) {
-                playerUUID = entry.getKey();
+        UUID pid = null;
+        for (Map.Entry<UUID, Entity> en : mountedMobs.entrySet()) {
+            if (en.getValue().equals(entity)) {
+                pid = en.getKey();
                 break;
             }
         }
-        if (playerUUID != null) {
-            mountedMobs.remove(playerUUID);
-            ChargeTask chargeTask = chargingPlayers.get(playerUUID);
-            if (chargeTask != null) {
+        if (pid != null) {
+            mountedMobs.remove(pid);
+            ChargeTask t = chargingPlayers.get(pid);
+            if (t != null) {
                 try {
-                    chargeTask.cancel();
+                    t.cancel();
                 } catch (Exception e) {
                 }
-                chargingPlayers.remove(playerUUID);
+                chargingPlayers.remove(pid);
             }
         }
     }
 
-    private void markMobAsMounted(Entity entity) {
-        entity.getPersistentDataContainer().set(mobLaunchKey, PersistentDataType.BYTE, (byte) 1);
+    private void markMobAsMounted(Entity e) {
+        e.getPersistentDataContainer().set(mobLaunchKey, PersistentDataType.BYTE, (byte) 1);
     }
 
-    private void unmarkMobAsMounted(Entity entity) {
-        entity.getPersistentDataContainer().remove(mobLaunchKey);
+    private void unmarkMobAsMounted(Entity e) {
+        e.getPersistentDataContainer().remove(mobLaunchKey);
     }
 
     public void removeAllMountedMobs() {
-        for (Map.Entry<UUID, Entity> entry : mountedMobs.entrySet()) {
-            Player player = Bukkit.getPlayer(entry.getKey());
-            Entity entity = entry.getValue();
-            if (player != null && player.isOnline() && entity != null && entity.isValid()) {
-                try {
-                    player.removePassenger(entity);
-                } catch (Exception e) {
-                }
-            }
-            if (entity != null && entity.isValid()) {
-                unmarkMobAsMounted(entity);
-            }
+        for (Map.Entry<UUID, Entity> en : mountedMobs.entrySet()) {
+            Player p = Bukkit.getPlayer(en.getKey());
+            Entity e = en.getValue();
+            if (p != null && p.isOnline() && e != null && e.isValid())
+                p.removePassenger(e);
+            if (e != null && e.isValid())
+                unmarkMobAsMounted(e);
         }
     }
 
-    private boolean checkMobOwnership(Player player, Entity entity) {
-        if (entity.getCustomName() != null && !entity.getCustomName().isEmpty()) {
-            PersistentDataContainer container = entity.getPersistentDataContainer();
-            NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
-            if (container.has(ownerKey, PersistentDataType.STRING)) {
-                String ownerUUID = container.get(ownerKey, PersistentDataType.STRING);
-                if (!player.getUniqueId().toString().equals(ownerUUID)) {
-                    if (!player.hasPermission("moblaunch.admin")) {
-                        return false;
-                    }
-                }
-            }
+    private boolean checkMobOwnership(Player p, Entity e) {
+        if (e.getCustomName() == null)
+            return true;
+        NamespacedKey k = new NamespacedKey(plugin, "MobLaunchOwner");
+        if (e.getPersistentDataContainer().has(k, PersistentDataType.STRING)) {
+            String uuid = e.getPersistentDataContainer().get(k, PersistentDataType.STRING);
+            if (!p.getUniqueId().toString().equals(uuid) && !p.hasPermission("moblaunch.admin"))
+                return false;
         }
         return true;
     }
 
-    public void setMobOwner(Entity entity, Player player) {
-        PersistentDataContainer container = entity.getPersistentDataContainer();
-        NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
-        container.set(ownerKey, PersistentDataType.STRING, player.getUniqueId().toString());
+    public void setMobOwner(Entity e, Player p) {
+        e.getPersistentDataContainer().set(new NamespacedKey(plugin, "MobLaunchOwner"), PersistentDataType.STRING,
+                p.getUniqueId().toString());
     }
 
-    public void removeMobOwner(Entity entity) {
-        PersistentDataContainer container = entity.getPersistentDataContainer();
-        NamespacedKey ownerKey = new NamespacedKey(plugin, "MobLaunchOwner");
-        container.remove(ownerKey);
-    }
-
-    // --- 蓄力任务类 (ChargeTask) ---
+    // --- 蓄力任务 ---
     private class ChargeTask extends BukkitRunnable {
         private final Player player;
         private int chargePercent = 0;
         private boolean isCancelled = false;
         private boolean isScheduled = false;
 
-        private enum ChargeState {
+        private enum State {
             INCREASING, MAX_PAUSE, DECREASING, ZERO_PAUSE
         }
 
-        private ChargeState currentState = ChargeState.INCREASING;
-        private int pauseTicksCounter = 0;
+        private State currentState = State.INCREASING;
+        private int pauseTicks = 0;
+        private final ConfigManager cfg;
 
-        public ChargeTask(Player player) {
-            this.player = player;
-            this.chargePercent = 0;
+        public ChargeTask(Player p) {
+            this.player = p;
+            this.cfg = plugin.getConfigManager();
         }
 
         @Override
         public void run() {
-            if (isCancelled)
-                return;
-            if (!isPlayerHoldingMob(player)) {
+            if (isCancelled || !isPlayerHoldingMob(player)) {
                 cancel();
                 return;
             }
 
+            int step = cfg.getChargeStep();
+
             switch (currentState) {
                 case INCREASING:
-                    chargePercent += 5;
+                    chargePercent += step;
                     if (chargePercent >= 100) {
                         chargePercent = 100;
-                        currentState = ChargeState.MAX_PAUSE;
-                        pauseTicksCounter = 0;
+                        currentState = State.MAX_PAUSE;
+                        pauseTicks = 0;
+                        playSound(player, "max-charge");
+                    } else {
+                        // 蓄力音效：每10%播放一次，音调升高
+                        if (chargePercent % (step * 2) == 0) {
+                            ConfigManager.SoundConfig sc = cfg.getSound("charging");
+                            if (sc.enabled) {
+                                float dynPitch = sc.pitch + (chargePercent / 100.0f);
+                                playSound(player, "charging", dynPitch);
+                            }
+                        }
                     }
                     break;
                 case MAX_PAUSE:
-                    pauseTicksCounter++;
-                    if (pauseTicksCounter >= plugin.getConfigManager().getPauseAtMaxTicks()) {
-                        currentState = ChargeState.DECREASING;
-                    }
+                    pauseTicks++;
+                    if (pauseTicks >= cfg.getPauseAtMaxTicks())
+                        currentState = State.DECREASING;
                     break;
                 case DECREASING:
-                    chargePercent -= 5;
+                    chargePercent -= step;
                     if (chargePercent <= 0) {
                         chargePercent = 0;
-                        currentState = ChargeState.ZERO_PAUSE;
-                        pauseTicksCounter = 0;
+                        currentState = State.ZERO_PAUSE;
+                        pauseTicks = 0;
+                        // 归零音效 (已配置)
+                        playSound(player, "zero-charge");
+                    } else {
+                        // 新增：减少时的音效
+                        if (chargePercent % (step * 2) == 0) {
+                            ConfigManager.SoundConfig sc = cfg.getSound("decreasing");
+                            if (sc.enabled) {
+                                // 动态音调：随着百分比降低，音调也降低 (模拟泄气)
+                                float dynPitch = sc.pitch + (chargePercent / 100.0f);
+                                playSound(player, "decreasing", dynPitch);
+                            }
+                        }
                     }
                     break;
                 case ZERO_PAUSE:
-                    pauseTicksCounter++;
-                    if (pauseTicksCounter >= plugin.getConfigManager().getPauseAtZeroTicks()) {
-                        currentState = ChargeState.INCREASING;
-                    }
+                    pauseTicks++;
+                    if (pauseTicks >= cfg.getPauseAtZeroTicks())
+                        currentState = State.INCREASING;
                     break;
             }
-            displayChargeBar(player, chargePercent);
+            if (cfg.isEnableActionBar()) {
+                displayBar(player, chargePercent);
+            }
         }
 
         public int getChargePercent() {
@@ -421,44 +438,43 @@ public class MobManager {
         @Override
         public synchronized void cancel() {
             isCancelled = true;
-            if (isScheduled) {
+            if (isScheduled)
                 try {
                     super.cancel();
-                } catch (IllegalStateException e) {
+                } catch (Exception e) {
                 }
-            }
         }
 
         public void markScheduled() {
             isScheduled = true;
         }
 
-        public boolean isScheduled() {
-            return isScheduled;
-        }
-
-        private void displayChargeBar(Player player, int percent) {
-            if (currentState == ChargeState.ZERO_PAUSE) {
-                player.sendActionBar(ChatColor.GRAY + "[ " + ChatColor.YELLOW + "松开潜行放下生物" + ChatColor.GRAY + " ]");
+        private void displayBar(Player p, int pct) {
+            if (currentState == State.ZERO_PAUSE) {
+                p.sendActionBar(ChatColor.GRAY + "[ " + ChatColor.YELLOW + "松开潜行放下生物" + ChatColor.GRAY + " ]");
                 return;
             }
+            int len = cfg.getBarLength();
+            int filled = (int) (len * (pct / 100.0));
 
-            int totalBars = 40;
-            int filledBars = (int) (percent / 2.5);
-            StringBuilder bar = new StringBuilder();
+            StringBuilder sb = new StringBuilder();
 
-            ChatColor fillColor = (currentState == ChargeState.INCREASING) ? ChatColor.GREEN : ChatColor.RED;
-            if (currentState == ChargeState.MAX_PAUSE)
-                fillColor = ChatColor.GOLD;
+            String color = cfg.getColorCharging();
+            if (currentState == State.MAX_PAUSE)
+                color = cfg.getColorFull();
+            else if (currentState == State.DECREASING)
+                color = cfg.getColorDecreasing();
 
-            bar.append(fillColor);
-            for (int i = 0; i < filledBars; i++)
-                bar.append("|");
-            bar.append(ChatColor.WHITE);
-            for (int i = filledBars; i < totalBars; i++)
-                bar.append("|");
+            sb.append(ChatColor.translateAlternateColorCodes('&', color));
+            String ch = cfg.getBarChar();
 
-            player.sendActionBar(bar.toString());
+            for (int i = 0; i < filled; i++)
+                sb.append(ch);
+            sb.append(ChatColor.WHITE);
+            for (int i = filled; i < len; i++)
+                sb.append(ch);
+
+            p.sendActionBar(sb.toString());
         }
     }
 }

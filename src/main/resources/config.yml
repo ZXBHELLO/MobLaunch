@@ -1,61 +1,114 @@
-# MobLaunch 配置文件
+# =============================================================
+#                 MobLaunch 核心配置文件 (最终版)
+# =============================================================
 
-# 可抱起的生物列表
+# --- 基础设置 ---
 allowed-mobs:
 - ALLAY
 - AXOLOTL
-- BAT
-- BEE
 - CAT
 - CHICKEN
 - COW
-- DONKEY
 - FOX
 - FROG
-- GLOW_SQUID
 - GOAT
 - HORSE
-- MOOSHROOM
-- MULE
-- OCELOT
+- PIG
 - PANDA
 - PARROT
-- PIG
 - POLAR_BEAR
 - RABBIT
 - SHEEP
-- SKELETON_HORSE
 - SNOW_GOLEM
-- SQUID
-- STRIDER
-- TROPICAL_FISH
-- TURTLE
 - VILLAGER
-- WANDERING_TRADER
+- WOLF
+- OCELOT
 
-# 蓄力配置
-charge:
-  # 每增加/减少 5% 蓄力等级所需的 ticks 数 (20 ticks = 1 秒)
-  increment-ticks: 1
-
-  # 蓄力达到 100% 后停顿多久开始减少 (ticks)
-  # 默认 10 ticks (0.5秒)
-  pause-at-max-ticks: 10
-
-  # 蓄力减少到 0% 后停顿多久开始重新增加 (ticks)
-  # 在这个停顿期间松开潜行键会放下生物
-  # 默认 10 ticks (0.5秒)
-  pause-at-zero-ticks: 10
-
-# 投掷配置
-launch:
-  # 最大初速度 (蓄力 100% 时的速度)
-  max-velocity: 2.0
-
-# 消息前缀
 message-prefix: "&6[MobLaunch] "
 
-# 消息显示设置
+# --- 物理与投掷设置 (Physics) ---
+launch:
+  # 投掷力度倍率
+  velocity-multiplier: 1.8
+
+  # 额外的垂直高度补偿
+  vertical-bias: 0.3
+
+# --- 保护机制 (Protection) ---
+protection:
+  # 投掷落地免伤 (推荐开启)
+  disable-fall-damage: true
+
+  # 创造模式消耗命名牌
+  consume-nametag-creative: false
+
+# --- 蓄力机制 (Charging) ---
+charge:
+  step-percentage: 5
+  increment-ticks: 1
+  pause-at-max-ticks: 15
+  pause-at-zero-ticks: 15
+
+# --- 视觉效果 (Visuals) ---
+visuals:
+  enable-action-bar: true
+  bar-char: "|"
+  bar-length: 40
+  color-charging: "&a"
+  color-full: "&6"
+  color-decreasing: "&c"
+
+# --- 音效配置 (Sounds) ---
+sounds:
+  # 抱起生物时 (皮革盔甲声 - 音调 1.0)
+  pickup:
+    sound: ITEM_ARMOR_EQUIP_LEATHER
+    volume: 1.0
+    pitch: 1.0
+    enabled: true
+
+  # 放下生物时 (皮革盔甲声 - 音调 0.8，听起来比较低沉，像“卸下”)
+  putdown:
+    sound: ITEM_ARMOR_EQUIP_LEATHER
+    volume: 1.0
+    pitch: 0.8
+    enabled: true
+
+  # 蓄力进行中 (音调会自动升高)
+  charging:
+    sound: BLOCK_NOTE_BLOCK_PLING
+    volume: 0.3
+    pitch: 0.5
+    enabled: true
+
+  # 蓄力减少中 (音调会自动降低)
+  decreasing:
+    sound: BLOCK_NOTE_BLOCK_PLING
+    volume: 0.3
+    pitch: 0.5
+    enabled: true
+
+  # 蓄力达到 100%
+  max-charge:
+    sound: BLOCK_NOTE_BLOCK_CHIME
+    volume: 0.5
+    pitch: 1.5
+    enabled: true
+
+  # 蓄力归零 (可放下状态)
+  zero-charge:
+    sound: BLOCK_NOTE_BLOCK_BASS
+    volume: 0.5
+    pitch: 0.5
+    enabled: true
+
+  # 发射/投掷！
+  launch:
+    sound: ENTITY_EGG_THROW
+    volume: 1.0
+    pitch: 0.8
+    enabled: true
+
 messages:
   no-permission-use: true
   no-permission-admin: true
@@ -65,6 +118,3 @@ messages:
   pickup-success: true
   putdown-success: true
   launch-message: true
-  command-version-info: true
-  command-reload-success: true
-  command-reload-failed: true
